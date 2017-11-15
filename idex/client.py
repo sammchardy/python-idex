@@ -18,24 +18,6 @@ class Client(object):
     _contract_address = None
     _currency_addresses = {}
 
-    TRANSFER_WITHDRAWAL = 'WITHDRAW'
-    TRANSFER_DEPOSIT = 'DEPOSIT'
-
-    SIDE_BUY = 'BUY'
-    SIDE_SELL = 'SELL'
-
-    TRANSFER_STATUS_CANCELLED = 'CANCEL'
-    TRANSFER_STATUS_SUCCESS = 'SUCCESS'
-
-    RESOLUTION_1MINUTE = '1'
-    RESOLUTION_5MINUTES = '5'
-    RESOLUTION_15MINUTES = '15'
-    RESOLUTION_30MINUTES = '30'
-    RESOLUTION_1HOUR = '60'
-    RESOLUTION_8HOURS = '480'
-    RESOLUTION_1DAY = 'D'
-    RESOLUTION_1WEEK = 'W'
-
     def __init__(self, address=None, private_key=None):
         """IDEX API Client constructor
 
