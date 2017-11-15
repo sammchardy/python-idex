@@ -49,3 +49,13 @@ class IdexCurrencyNotFoundException(IdexException):
 
     def __str__(self):
         return 'IdexCurrencyNotFoundException: {} not found'.format(self.message)
+
+
+class IdexWalletAddressNotFoundException(Exception):
+    def __str__(self):
+        return 'IdexWalletAddressNotFoundException: Wallet address not set'.format(self.message)
+
+
+class IdexPrivateKeyNotFoundException(Exception):
+    def __str__(self):
+        return 'IdexPrivateKeyNotFoundException: Private key not set'.format(self.message)

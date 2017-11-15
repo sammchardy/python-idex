@@ -1,20 +1,25 @@
 Exceptions
 ==========
 
-IdexException
--------------
+IdexWalletAddressNotFoundException
+----------------------------------
 
-Raised if a wallet address or private key are not set
+Raised if a wallet address has not been set.
+
+IdexPrivateKeyNotFoundException
+-------------------------------
+
+Raised if the private key has not been set.
 
 IdexCurrencyNotFoundException
 -----------------------------
 
-Raised if a requested currency is not found
+Raised if a requested currency is not found.
 
 IdexResponseException
 -----------------------
 
-Raised if a non JSON response is returned
+Raised if a non JSON response is returned.
 
 IdexAPIException
 ------------------
@@ -35,4 +40,3 @@ The exception provides access to the
     except IdexAPIException as e:
         print(e.status_code)
         print(e.message)
-

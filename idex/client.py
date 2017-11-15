@@ -4,7 +4,7 @@
 import time
 import requests
 
-from .exceptions import IdexException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
+from .exceptions import IdexWalletAddressNotFoundException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
 
 
 class Client(object):
@@ -535,12 +535,12 @@ class Client(object):
                 }
             ]
 
-        :raises:  IdexException, IdexResponseException,  IdexAPIException
+        :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
 
         if not self._wallet_address:
-            raise IdexException('Wallet address not set')
+            raise IdexWalletAddressNotFoundException()
 
         return self.get_open_orders(market, self._wallet_address)
 
@@ -642,12 +642,12 @@ class Client(object):
                 ]
             }
 
-        :raises:  IdexException, IdexResponseException,  IdexAPIException
+        :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
 
         if not self._wallet_address:
-            raise IdexException('Wallet address not set')
+            raise IdexWalletAddressNotFoundException()
 
         return self.get_trade_history(market, self._wallet_address, start, end)
 
@@ -804,12 +804,12 @@ class Client(object):
                 }
             }
 
-        :raises:  IdexException, IdexResponseException,  IdexAPIException
+        :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
 
         if not self._wallet_address:
-            raise IdexException('Wallet address not set')
+            raise IdexWalletAddressNotFoundException()
 
         return self.get_balances(self._wallet_address, complete)
 
@@ -909,12 +909,12 @@ class Client(object):
                 ]
             }
 
-        :raises:  IdexException, IdexResponseException,  IdexAPIException
+        :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
 
         if not self._wallet_address:
-            raise IdexException('Wallet address not set')
+            raise IdexWalletAddressNotFoundException()
 
         return self.get_transfers(self._wallet_address, start, end)
 
@@ -1003,12 +1003,12 @@ class Client(object):
                 nonce: 2650
             }
 
-        :raises:  IdexException, IdexResponseException,  IdexAPIException
+        :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
 
         if not self._wallet_address:
-            raise IdexException('Wallet address not set')
+            raise IdexWalletAddressNotFoundException()
 
         return self.get_next_nonce(self._wallet_address)
 
