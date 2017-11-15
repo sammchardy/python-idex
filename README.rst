@@ -67,7 +67,7 @@ Register an account with `IDEX <https://idex.market/>`_.
     orders = client.get_my_open_orders('ETH_SAN')
 
 
-For more `check out the documentation <https://python-kucoin.readthedocs.io/en/latest/>`_.
+For more `check out the documentation <https://github.com/AuroraDAO/idex-api-docs>`_.
 
 TODO
 ----
