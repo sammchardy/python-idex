@@ -1044,3 +1044,69 @@ class Client(object):
         """
 
         return self._post('returnContractAddress')
+
+    # Trade Endpoints
+
+    def parse_from_currency_quantity(self, currency, quantity):
+        """Convert a quantity string to a float
+
+        :param currency: Name of currency e.g EOS
+        :type currency: string
+        :param quantity: Quantity value as string '3100000000000000000000'
+        :type quantity: string
+
+        :returns: decimal
+
+        """
+
+        currency_details = self.get_currency(currency)
+        if currency_details is None:
+            return None
+
+        f_q = Decimal(quantity)
+
+        if 'decimals' not in currency_details:
+            return f_q
+
+        # divide by currency_details['decimals']
+        d_str = "1{}".format(("0" * currency_details['decimals']))
+        res = f_q / Decimal(d_str)
+
+        return res
+
+    def _num_to_decimal(self, number):
+        if type(number) == float:
+            number = Decimal(repr(number))
+        elif type(number) == int:
+            number = Decimal(number)
+        elif type(number) == str:
+            number = Decimal(number)
+
+        return number
+
+    def convert_to_currency_quantity(self, currency, quantity):
+        """Convert a float quantity to the correct decimal places
+
+        :param currency: Name of currency e.g EOS
+        :type currency: string
+        :param quantity: Quantity value 4.234298924 prefer Decimal or string, int or float should work
+        :type quantity: Decimal, string, int, float
+
+        """
+        currency_details = self.get_currency(currency)
+        if currency_details is None:
+            return None
+
+        f_q = self._num_to_decimal(quantity)
+
+        if 'decimals' not in currency_details:
+            return f_q
+
+        # multiply by currency_details['decimals']
+        m_str = "1{}".format(("0" * currency_details['decimals']))
+        print(m_str)
+        print(f_q)
+        res = (f_q * Decimal(m_str)).to_integral_exact()
+
+        return str(res)
+
