@@ -51,7 +51,7 @@ Register an account with `Idex <https://idex.market/>`_.
 
 .. code:: python
 
-    from kucoin.idex import Client
+    from idex.client import Client
     client = Client(address, private_key)
 
     # get currencies
