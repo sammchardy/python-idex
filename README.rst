@@ -42,7 +42,7 @@ Features
 Quick Start
 -----------
 
-Register an account with `Idex <https://idex.market/>`_.
+Register an account with `IDEX <https://idex.market/>`_.
 
 .. code:: bash
 
