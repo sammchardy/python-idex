@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 # coding=utf-8
 
-from decimal import *
 import time
-import sys
 import requests
 
 from .exceptions import IdexException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
