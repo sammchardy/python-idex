@@ -4,7 +4,7 @@
 import time
 import requests
 
-from .exceptions import IdexWalletAddressNotFoundException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
+from .exceptions import IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
 
 
 class Client(object):
