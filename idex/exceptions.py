@@ -43,3 +43,9 @@ class IdexRequestException(Exception):
 
     def __str__(self):
         return 'IdexRequestException: {}'.format(self.message)
+
+
+class IdexCurrencyNotFoundException(IdexException):
+
+    def __str__(self):
+        return 'IdexCurrencyNotFoundException: {} not found'.format(self.message)

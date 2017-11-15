@@ -6,7 +6,7 @@ import time
 import sys
 import requests
 
-from .exceptions import IdexException, IdexAPIException, IdexRequestException
+from .exceptions import IdexException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
 
 
 class Client(object):
@@ -696,14 +696,29 @@ class Client(object):
         :param currency: Name of the currency e.g. EOS
         :type currency: string
 
+        .. code:: python
+
+            currencies = client.get_currency('REP')
+
         :returns:
+
+        .. code-block:: python
+
+            {
+                decimals: 8,
+                address: '0xc853ba17650d32daba343294998ea4e33e7a48b9',
+                name: 'Reputation'
+            }
+
+        :raises:  IdexCurrencyNotFoundException, IdexResponseException,  IdexAPIException
+
         """
 
         if currency not in self._currency_addresses:
             self._currency_addresses = self.get_currencies()
 
         if currency not in self._currency_addresses:
-            return None
+            raise IdexCurrencyNotFoundException(currency)
 
         return self._currency_addresses[currency]
 
