@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 # coding=utf-8
 
+from decimal import Decimal
+import binascii
+import codecs
 import time
 import requests
+from ethereum.utils import sha3, ecsign, encode_int32
 
 from .exceptions import IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
 
@@ -59,19 +63,59 @@ class Client(object):
         """
         return int(time.time() * 1000)
 
+    def _generate_signature(self, data):
+        """Generate v, r, s values from payload
+
+        """
+
+        # pack parameters based on type
+        sig_str = b''
+        for d in data:
+            val = d[1]
+            if d[2] == 'address':
+                # remove 0x prefix and convert to bytes
+                val = val[2:].encode('utf-8')
+            elif d[2] == 'uint256':
+                # encode, pad and convert to bytes
+                val = binascii.b2a_hex(encode_int32(int(d[1])))
+            sig_str += val
+
+        # hash the packed string
+        rawhash = sha3(codecs.decode(sig_str, 'hex'))
+
+        # salt the hashed packed string
+        salted = sha3(u"\x19Ethereum Signed Message:\n32".encode('utf-8') + rawhash)
+
+        # sign string
+        v, r, s = ecsign(salted, codecs.decode(self._private_key[2:], 'hex'))
+
+        # pad r and s with 0 to 64 places
+        return {'v': v, 'r': "{0:#0{1}x}".format(r, 66), 's': "{0:#0{1}x}".format(s, 66)}
+
     def _create_uri(self, path):
         return '{}/{}'.format(self.API_URL, path)
 
     def _request(self, method, path, signed, **kwargs):
 
         kwargs['data'] = kwargs.get('data', {})
+
         kwargs['headers'] = kwargs.get('headers', {})
 
         uri = self._create_uri(path)
 
         if signed:
             # generate signature
-            pass
+            kwargs['json'] = self._generate_signature(kwargs['hash_data'])
+
+            # put hash_data into json param
+            for el in kwargs['hash_data']:
+                kwargs['json'][el[0]] = el[1]
+            # remove the passed hash data
+            del(kwargs['hash_data'])
+
+            # filter out contract address, not required
+            if 'contract_address' in kwargs['data']:
+                del(kwargs['json']['contract_address'])
 
         if kwargs['data'] and method == 'get':
             kwargs['params'] = kwargs['data']
