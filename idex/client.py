@@ -1393,4 +1393,3 @@ class Client(object):
         ]
 
         return self._post('cancel', True, hash_data=hash_data)
-
