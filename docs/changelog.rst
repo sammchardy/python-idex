@@ -1,6 +1,15 @@
 Changelog
 =========
 
+v0.2.0 - 2017-11-16
+^^^^^^^^^^^^^^^^^^^
+
+**Added**
+
+- Trading endpoints
+- Better exception handling
+- Reference currency by address as well as name
+
 v0.1.0 - 2017-11-15
 ^^^^^^^^^^^^^^^^^^^
 

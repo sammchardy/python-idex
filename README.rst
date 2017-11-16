@@ -1,5 +1,5 @@
 =============================
-Welcome to python-idex v0.1.0
+Welcome to python-idex v0.2.0
 =============================
 
 .. image:: https://img.shields.io/pypi/v/python-idex.svg
@@ -35,7 +35,7 @@ Documentation
 Features
 --------
 
-- Implementation of all non trading REST endpoints.
+- Implementation of all REST endpoints except for withdraw/deposit.
 - Helper functions for your wallet address
 - Response exception handling
 
@@ -66,13 +66,16 @@ Register an account with `IDEX <https://idex.market/>`_.
     # get your open orders
     orders = client.get_my_open_orders('ETH_SAN')
 
+    # create a limit order
+    order = client.create_order('SAN', 'ETH', '0.001', '10000')
+
 
 For more `check out the documentation <https://github.com/AuroraDAO/idex-api-docs>`_.
 
 TODO
 ----
 
-- Trading endpoints
+- Withdraw/deposit endpoints
 - Websocket endpoints
 
 Donate
