@@ -81,13 +81,13 @@ class Client(object):
             sig_str += val
 
         # hash the packed string
-        rawhash = sha3(codecs.decode(sig_str, 'hex'))
+        rawhash = sha3(codecs.decode(sig_str, 'hex_codec'))
 
         # salt the hashed packed string
         salted = sha3(u"\x19Ethereum Signed Message:\n32".encode('utf-8') + rawhash)
 
         # sign string
-        v, r, s = ecsign(salted, codecs.decode(self._private_key[2:], 'hex'))
+        v, r, s = ecsign(salted, codecs.decode(self._private_key[2:], 'hex_codec'))
 
         # pad r and s with 0 to 64 places
         return {'v': v, 'r': "{0:#0{1}x}".format(r, 66), 's': "{0:#0{1}x}".format(s, 66)}
@@ -1393,4 +1393,3 @@ class Client(object):
         ]
 
         return self._post('cancel', True, hash_data=hash_data)
-
