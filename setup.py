@@ -10,7 +10,7 @@ setup(
     author='Sam McHardy',
     license='MIT',
     author_email='',
-    install_requires=['requests'],
+    install_requires=['requests', 'ethereum'],
     keywords='idex exchange rest api ethereum eth eos',
     classifiers=[
           'Intended Audience :: Developers',
