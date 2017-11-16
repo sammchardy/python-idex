@@ -1172,3 +1172,225 @@ class Client(object):
 
         return str(res)
 
+    def create_order(self, token_buy, token_sell, price, quantity):
+        """Create a limit order
+
+        :param token_buy: The name or address of the token you will receive as a result of the trade e.g. ETH or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
+        :type token_buy: string
+        :param token_sell:  The name or address of the token you will lose as a result of the trade e.g. EOS or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
+        :type token_sell: string
+        :param price:  The price in token_sell you want to purchase the new token for
+        :type price: Decimal, string, int or float
+        :param quantity: The amount of token_buy you will receive when the order is fully filled
+        :type quantity: Decimal, string, int or float
+
+        .. code:: python
+
+            ticker = client.create_order(
+                'EOS',
+                'ETH',
+                '0.000123',
+                '31200.324')
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            {
+                orderNumber: 2101,
+                orderHash: '0x3fe808be7b5df3747e5534056e9ff45ead5b1fcace430d7b4092e5fcd7161e21',
+                price: '0.000129032258064516',
+                amount: '3100',
+                total: '0.4',
+                type: 'buy',
+                params: {
+                    tokenBuy: '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098',
+                    buyPrecision: 18,
+                    amountBuy: '3100000000000000000000',
+                    tokenSell: '0x0000000000000000000000000000000000000000',
+                    sellPrecision: 18,
+                    amountSell: '400000000000000000',
+                    expires: 100000,
+                    nonce: 1,
+                    user: '0x57b080554ebafc8b17f4a6fd090c18fc8c9188a0'
+                }
+            }
+
+        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
+
+        """
+
+        # convert buy and sell amounts based on decimals
+        price = self._num_to_decimal(price)
+        quantity = self._num_to_decimal(quantity)
+        sell_quantity = price * quantity
+        amount_buy = self.convert_to_currency_quantity(token_buy, quantity)
+        amount_sell = self.convert_to_currency_quantity(token_sell, sell_quantity)
+
+        return self.create_order_wei(token_buy, token_sell, amount_buy, amount_sell)
+
+    def create_order_wei(self, token_buy, token_sell, amount_buy, amount_sell):
+        """Create a limit order using buy and sell amounts as integer value precision matching that token
+
+        :param token_buy: The name or address of the token you will receive as a result of the trade e.g. ETH or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
+        :type token_buy: string
+        :param token_sell:  The name or address of the token you will lose as a result of the trade e.g. EOS or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
+        :type token_sell: string
+        :param amount_buy:  The amount of token_buy you will receive when the order is fully filled
+        :type amount_buy: Decimal, string
+        :param amount_sell: The amount of token_sell you are selling
+        :type amount_sell: Decimal, string
+
+        .. code:: python
+
+            ticker = client.create_order_gwei(
+                'EOS',
+                'ETH',
+                '3100000000000000000000',
+                '400000000000000000')
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            {
+                orderNumber: 2101,
+                orderHash: '0x3fe808be7b5df3747e5534056e9ff45ead5b1fcace430d7b4092e5fcd7161e21',
+                price: '0.000129032258064516',
+                amount: '3100',
+                total: '0.4',
+                type: 'buy',
+                params: {
+                    tokenBuy: '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098',
+                    buyPrecision: 18,
+                    amountBuy: '3100000000000000000000',
+                    tokenSell: '0x0000000000000000000000000000000000000000',
+                    sellPrecision: 18,
+                    amountSell: '400000000000000000',
+                    expires: 100000,
+                    nonce: 1,
+                    user: '0x57b080554ebafc8b17f4a6fd090c18fc8c9188a0'
+                }
+            }
+
+        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
+
+        """
+
+        if not self._wallet_address:
+            raise IdexWalletAddressNotFoundException()
+
+        if not self._private_key:
+            raise IdexPrivateKeyNotFoundException()
+
+        contract_address = self._get_contract_address()
+
+        buy_currency = self.get_currency(token_buy)
+        sell_currency = self.get_currency(token_sell)
+
+        hash_data = [
+            ['contractAddress', contract_address, 'address'],
+            ['tokenBuy', buy_currency['address'], 'address'],
+            ['amountBuy', amount_buy, 'uint256'],
+            ['tokenSell', sell_currency['address'], 'address'],
+            ['amountSell', amount_sell, 'uint256'],
+            ['expires', '10000', 'uint256'],
+            ['nonce', self._get_nonce(), 'uint256'],
+            ['address', self._wallet_address, 'address'],
+        ]
+
+        return self._post('order', True, hash_data=hash_data)
+
+    def create_trade(self, order_hash, token, amount):
+        """Make a trade
+
+        TODO: Allow multiple orders to be filled
+
+        :param order_hash: This is the raw hash of the order you are filling. The orderHash property of an order can be retrieved from the API calls which return orders, for higher security the has can be derived from the order parameters.
+        :type order_hash: string e.g ‘0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52’
+        :param token: The name or address of the token you are filling the order with. In the order it's the tokenBuy token
+        :type token: string or hex string e.g 'EOS' or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
+        :param amount: This is the amount of the order you are filling  e.g 0.2354
+        :type amount: Decimal, string, int or float
+
+        .. code:: python
+
+            trades = client.create_trade(
+                '0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52',
+                'ETH',
+                '1.23')
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    amount: ‘0.07’,
+                    date: ‘2017-10-13 16:25:36’,
+                    total: ‘0.01’,
+                    market: ‘ETH_DVIP’,
+                    type: ‘buy’,
+                    price: ‘7’,
+                    orderHash: ‘0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52’,
+                    uuid: ‘250d51a0-b033-11e7-9984-a9ab79bb8f35’
+                }
+            ]
+
+        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
+
+        """
+
+        if not self._wallet_address:
+            raise IdexWalletAddressNotFoundException()
+
+        if not self._private_key:
+            raise IdexPrivateKeyNotFoundException()
+
+        amount_trade = self.convert_to_currency_quantity(token, amount)
+
+        hash_data = [
+            ['orderHash', order_hash, 'address'],
+            ['amount', amount_trade, 'uint256'],
+            ['nonce', self._get_nonce(), 'uint256'],
+            ['address', self._wallet_address, 'address'],
+        ]
+
+        return self._post('trade', True, hash_data=hash_data)
+
+    def cancel_order(self, order_hash):
+        """Cancel an order
+
+        :param order_hash: The raw hash of the order you are cancelling
+        :type order_hash:
+
+        .. code:: python
+
+            trades = client.cancel_order('0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52')
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            {
+                success: 1
+            }
+
+        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
+
+        """
+
+        if not self._wallet_address:
+            raise IdexWalletAddressNotFoundException()
+
+        if not self._private_key:
+            raise IdexPrivateKeyNotFoundException()
+
+        hash_data = [
+            ['orderHash', order_hash, 'address'],
+            ['nonce', self._get_nonce(), 'uint256'],
+            ['address', self._wallet_address, 'address'],
+        ]
+
+        return self._post('cancel', True, hash_data=hash_data)
+
