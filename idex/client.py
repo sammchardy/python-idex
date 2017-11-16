@@ -54,6 +54,9 @@ class Client(object):
         return session
 
     def _get_nonce(self):
+        """Get a unique nonce for request
+
+        """
         return int(time.time() * 1000)
 
     def _create_uri(self, path):
@@ -1102,7 +1105,7 @@ class Client(object):
     def convert_to_currency_quantity(self, currency, quantity):
         """Convert a float quantity to the correct decimal places
 
-        :param currency: Name of currency e.g EOS
+        :param currency: Name or address of currency e.g EOS or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
         :type currency: string
         :param quantity: Quantity value 4.234298924 prefer Decimal or string, int or float should work
         :type quantity: Decimal, string, int, float
