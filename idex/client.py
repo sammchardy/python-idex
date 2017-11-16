@@ -689,14 +689,18 @@ class Client(object):
         return self._post('returnCurrencies')
 
     def get_currency(self, currency):
-        """Get the details for a particular currency
+        """Get the details for a particular currency using it's token name or address
 
-        :param currency: Name of the currency e.g. EOS
-        :type currency: string
+        :param currency: Name of the currency e.g. EOS or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
+        :type currency: string or hex string
 
         .. code:: python
 
-            currencies = client.get_currency('REP')
+            # using token name
+            currency = client.get_currency('REP')
+
+            # using the address string
+            currency = client.get_currency('0xc853ba17650d32daba343294998ea4e33e7a48b9')
 
         :returns:
 
@@ -715,10 +719,21 @@ class Client(object):
         if currency not in self._currency_addresses:
             self._currency_addresses = self.get_currencies()
 
-        if currency not in self._currency_addresses:
-            raise IdexCurrencyNotFoundException(currency)
+        res = None
+        if currency[:2] == '0x':
+            for c in self._currency_addresses:
+                if c['address'] == currency:
+                    res = c
+                    break
+            # check if we found the currency
+            if res is None:
+                raise IdexCurrencyNotFoundException(currency)
+        else:
+            if currency not in self._currency_addresses:
+                raise IdexCurrencyNotFoundException(currency)
+            res = self._currency_addresses[currency]
 
-        return self._currency_addresses[currency]
+        return res
 
     def get_balances(self, address, complete=False):
         """Get available balances for an address (total deposited minus amount in open orders) indexed by token symbol.

@@ -4,7 +4,7 @@
 from decimal import *
 
 from idex.client import Client
-from idex.exceptions import IdexAPIException, IdexRequestException
+from idex.exceptions import IdexCurrencyNotFoundException
 import pytest
 import requests_mock
 
@@ -80,25 +80,25 @@ def test_convert_from_currency_valid():
 def test_convert_to_currency_not_found():
     """Test when currency is not found"""
 
-    with requests_mock.mock() as m:
-        m.post('https://api.idex.market/returnCurrencies', json=currencies_json, status_code=200)
+    with pytest.raises(IdexCurrencyNotFoundException):
+        with requests_mock.mock() as m:
+            m.post('https://api.idex.market/returnCurrencies', json=currencies_json, status_code=200)
 
-        for e in not_found_examples:
-            q = client.convert_to_currency_quantity(e[0], e[2])
+            for e in not_found_examples:
+                q = client.convert_to_currency_quantity(e[0], e[2])
 
-            assert None is q
+                assert None is q
 
 
 def test_convert_from_currency_not_found():
     """Test when currency is not found"""
 
-    with requests_mock.mock() as m:
-        m.post('https://api.idex.market/returnCurrencies', json=currencies_json, status_code=200)
+    with pytest.raises(IdexCurrencyNotFoundException):
+        with requests_mock.mock() as m:
+            m.post('https://api.idex.market/returnCurrencies', json=currencies_json, status_code=200)
 
-        for e in not_found_examples:
-            q = client.parse_from_currency_quantity(e[0], e[1])
-
-            assert None is q
+            for e in not_found_examples:
+                q = client.parse_from_currency_quantity(e[0], e[1])
 
 
 def test_convert_to_currency_no_decimals():
