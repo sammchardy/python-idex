@@ -1366,7 +1366,7 @@ class Client(object):
 
         .. code:: python
 
-            trades = client.cancel_order('0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52')
+            status = client.cancel_order('0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52')
 
         :returns: API Response
 
