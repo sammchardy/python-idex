@@ -1326,14 +1326,14 @@ class Client(object):
 
             [
                 {
-                    amount: ‘0.07’,
-                    date: ‘2017-10-13 16:25:36’,
-                    total: ‘0.01’,
-                    market: ‘ETH_DVIP’,
-                    type: ‘buy’,
-                    price: ‘7’,
-                    orderHash: ‘0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52’,
-                    uuid: ‘250d51a0-b033-11e7-9984-a9ab79bb8f35’
+                    amount: '0.07',
+                    date: '2017-10-13 16:25:36',
+                    total: '0.01',
+                    market: 'ETH_DVIP',
+                    type: 'buy',
+                    price: '7',
+                    orderHash: '0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52',
+                    uuid: '250d51a0-b033-11e7-9984-a9ab79bb8f35'
                 }
             ]
 
