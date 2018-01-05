@@ -83,16 +83,18 @@ Donate
 
 If this library helped you out feel free to donate.
 
-- ETH: 0x79c9A113d63B6AC024c1AAae6f6419721C3611A3
+- ETH: 0xD7a7fDdCfA687073d7cC93E9E51829a727f9fE70
 - NEO: AVJB4ZgN7VgSUtArCt94y7ZYT6d5NDfpBo
 - BTC: 1Dknp6L6oRZrHDECRedihPzx2sSfmvEBys
 
 Other Exchanges
 ---------------
 
-If you use `Binance <https://www.binance.com/register.html?ref=10099792>`_ check out my `python-binance <https://github.com/sammchardy/python-binance>`_ library.
+If you use `Binance <https://www.binance.com/?ref=10099792>`_ check out my `python-binance <https://github.com/sammchardy/python-binance>`_ library.
 
 If you use `Quoinex <https://accounts.quoinex.com/sign-up?affiliate=PAxghztC67615>`_
 or `Qryptos <https://accounts.qryptos.com/sign-up?affiliate=PAxghztC67615>`_ check out my `python-quoine <https://github.com/sammchardy/python-quoine>`_ library.
 
 If you use `Kucoin <https://www.kucoin.com/#/?r=E42cWB>`_ check out my `python-kucoin <https://github.com/sammchardy/python-kucoin>`_ library.
+
+.. image:: https://analytics-pixel.appspot.com/UA-111417213-1/github/python-idex?pixel
