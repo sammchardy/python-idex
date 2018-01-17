@@ -98,4 +98,6 @@ or `Qryptos <https://accounts.qryptos.com/sign-up?affiliate=PAxghztC67615>`_ che
 
 If you use `Kucoin <https://www.kucoin.com/#/?r=E42cWB>`_ check out my `python-kucoin <https://github.com/sammchardy/python-kucoin>`_ library.
 
+If you use `BigONE <https://big.one>`_ check out my `python-bigone <https://github.com/sammchardy/python-bigone>`_ library.
+
 .. image:: https://analytics-pixel.appspot.com/UA-111417213-1/github/python-idex?pixel
