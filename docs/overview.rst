@@ -26,7 +26,7 @@ Your Wallet Address can be found in the top right under the account menu.
 
 This is used to query the exchange for your balances, orders and trade history etc.
 
-Some calls will throw and IdexException unless the wallet address has been set.
+Some calls will throw an IdexException unless the wallet address and private key have been set.
 
 Initialise the client
 ---------------------
