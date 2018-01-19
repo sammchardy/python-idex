@@ -1395,3 +1395,46 @@ class Client(object):
         ]
 
         return self._post('cancel', True, hash_data=hash_data)
+
+    # Withdraw Endpoints
+
+    def withdraw(self, amount, token):
+        """Withdraw funds from IDEX to your wallet address
+
+        :param amount:  The amount of token you want to withdraw
+        :type amount: Decimal, string
+        :param token: The name or address of the token you are withdrawing. In the order it's the tokenBuy token
+        :type token: string or hex string e.g 'EOS' or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
+
+        .. code:: python
+
+            status = client.withdraw('1000.32', 'EOS')
+
+        :returns: API Response
+
+        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
+
+        """
+
+        if not self._wallet_address:
+            raise IdexWalletAddressNotFoundException()
+
+        if not self._private_key:
+            raise IdexPrivateKeyNotFoundException()
+
+        contract_address = self._get_contract_address()
+
+        currency = self.get_currency(token)
+
+        # convert amount
+        amount = self.convert_to_currency_quantity(token, amount)
+
+        hash_data = [
+            ['contractAddress', contract_address, 'address'],
+            ['token', currency['address'], 'address'],
+            ['amount', amount, 'uint256'],
+            ['address', self._wallet_address, 'address'],
+            ['nonce', self._get_nonce(), 'uint256'],
+        ]
+
+        return self._post('withdraw', True, hash_data=hash_data)
