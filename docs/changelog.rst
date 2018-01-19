@@ -1,6 +1,17 @@
 Changelog
 =========
 
+v0.2.1 - 2018-01-19
+^^^^^^^^^^^^^^^^^^^
+
+**Added**
+
+- Withdraw endpoint
+
+**Fixed**
+
+- issue with Nonce value being too high
+
 v0.2.0 - 2017-11-16
 ^^^^^^^^^^^^^^^^^^^
 

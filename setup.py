@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='python-idex',
-    version='0.2.0',
+    version='0.2.1',
     packages=['idex'],
     description='IDEX REST API python implementation',
     url='https://github.com/sammchardy/python-idex',
