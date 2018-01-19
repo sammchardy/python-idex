@@ -1170,8 +1170,6 @@ class Client(object):
 
         # multiply by currency_details['decimals']
         m_str = "1{}".format(("0" * currency_details['decimals']))
-        print(m_str)
-        print(f_q)
         res = (f_q * Decimal(m_str)).to_integral_exact()
 
         return str(res)
