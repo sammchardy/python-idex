@@ -43,10 +43,11 @@ class Client(object):
 
         """
 
+        self._start_nonce = None
+        self._client_started = int(time.time() * 1000)
+
         if address:
-            self._wallet_address = address
-        if private_key:
-            self._private_key = private_key
+            self.set_wallet_address(address, private_key)
         self.session = self._init_session()
 
     def _init_session(self):
@@ -61,7 +62,7 @@ class Client(object):
         """Get a unique nonce for request
 
         """
-        return int(time.time() * 1000)
+        return self._start_nonce + int(time.time() * 1000) - self._client_started
 
     def _generate_signature(self, data):
         """Generate v, r, s values from payload
@@ -167,6 +168,7 @@ class Client(object):
 
         """
         self._wallet_address = address
+        self._start_nonce = self.get_my_next_nonce()
         if private_key:
             self._private_key = private_key
 
