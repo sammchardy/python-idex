@@ -46,9 +46,10 @@ class Client(object):
         self._start_nonce = None
         self._client_started = int(time.time() * 1000)
 
+        self.session = self._init_session()
+
         if address:
             self.set_wallet_address(address, private_key)
-        self.session = self._init_session()
 
     def _init_session(self):
 
