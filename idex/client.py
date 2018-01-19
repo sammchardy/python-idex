@@ -43,11 +43,13 @@ class Client(object):
 
         """
 
-        if address:
-            self._wallet_address = address
-        if private_key:
-            self._private_key = private_key
+        self._start_nonce = None
+        self._client_started = int(time.time() * 1000)
+
         self.session = self._init_session()
+
+        if address:
+            self.set_wallet_address(address, private_key)
 
     def _init_session(self):
 
@@ -61,7 +63,7 @@ class Client(object):
         """Get a unique nonce for request
 
         """
-        return int(time.time() * 1000)
+        return self._start_nonce + int(time.time() * 1000) - self._client_started
 
     def _generate_signature(self, data):
         """Generate v, r, s values from payload
@@ -167,6 +169,8 @@ class Client(object):
 
         """
         self._wallet_address = address
+        nonce_res = self.get_my_next_nonce()
+        self._start_nonce = nonce_res['nonce']
         if private_key:
             self._private_key = private_key
 
@@ -1166,8 +1170,6 @@ class Client(object):
 
         # multiply by currency_details['decimals']
         m_str = "1{}".format(("0" * currency_details['decimals']))
-        print(m_str)
-        print(f_q)
         res = (f_q * Decimal(m_str)).to_integral_exact()
 
         return str(res)
@@ -1393,3 +1395,46 @@ class Client(object):
         ]
 
         return self._post('cancel', True, hash_data=hash_data)
+
+    # Withdraw Endpoints
+
+    def withdraw(self, amount, token):
+        """Withdraw funds from IDEX to your wallet address
+
+        :param amount:  The amount of token you want to withdraw
+        :type amount: Decimal, string
+        :param token: The name or address of the token you are withdrawing. In the order it's the tokenBuy token
+        :type token: string or hex string e.g 'EOS' or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
+
+        .. code:: python
+
+            status = client.withdraw('1000.32', 'EOS')
+
+        :returns: API Response
+
+        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
+
+        """
+
+        if not self._wallet_address:
+            raise IdexWalletAddressNotFoundException()
+
+        if not self._private_key:
+            raise IdexPrivateKeyNotFoundException()
+
+        contract_address = self._get_contract_address()
+
+        currency = self.get_currency(token)
+
+        # convert amount
+        amount = self.convert_to_currency_quantity(token, amount)
+
+        hash_data = [
+            ['contractAddress', contract_address, 'address'],
+            ['token', currency['address'], 'address'],
+            ['amount', amount, 'uint256'],
+            ['address', self._wallet_address, 'address'],
+            ['nonce', self._get_nonce(), 'uint256'],
+        ]
+
+        return self._post('withdraw', True, hash_data=hash_data)

@@ -14,6 +14,7 @@ Contents
    exchange
    orders
    account
+   withdraw
    exceptions
    changelog
 
