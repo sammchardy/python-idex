@@ -169,7 +169,8 @@ class Client(object):
 
         """
         self._wallet_address = address
-        self._start_nonce = self.get_my_next_nonce()
+        nonce_res = self.get_my_next_nonce()
+        self._start_nonce = nonce_res['nonce']
         if private_key:
             self._private_key = private_key
 
