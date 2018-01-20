@@ -1350,8 +1350,8 @@ class Client(object):
         hash_data = [
             ['orderHash', order_hash, 'address'],
             ['amount', amount_trade, 'uint256'],
-            ['nonce', self._get_nonce(), 'uint256'],
             ['address', self._wallet_address, 'address'],
+            ['nonce', self._get_nonce(), 'uint256'],
         ]
 
         return self._post('trade', True, hash_data=hash_data)
