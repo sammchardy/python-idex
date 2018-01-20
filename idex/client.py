@@ -99,29 +99,25 @@ class Client(object):
 
     def _request(self, method, path, signed, **kwargs):
 
-        kwargs['data'] = kwargs.get('data', {})
-
+        kwargs['json'] = kwargs.get('json', {})
         kwargs['headers'] = kwargs.get('headers', {})
 
         uri = self._create_uri(path)
 
         if signed:
-            # generate signature
-            kwargs['json'] = self._generate_signature(kwargs['hash_data'])
+            # generate signature e.g. {'v': 28 (or 27), 'r': '0x...', 's': '0x...'}
+            kwargs['json'].update(self._generate_signature(kwargs['hash_data']))
 
             # put hash_data into json param
-            for el in kwargs['hash_data']:
-                kwargs['json'][el[0]] = el[1]
-            # remove the passed hash data
-            del(kwargs['hash_data'])
+            for name, value, _param_type in kwargs['hash_data']:
+                kwargs['json'][name] = value
 
             # filter out contract address, not required
-            if 'contract_address' in kwargs['data']:
+            if 'contract_address' in kwargs['json']:
                 del(kwargs['json']['contract_address'])
 
-        if kwargs['data'] and method == 'get':
-            kwargs['params'] = kwargs['data']
-            del(kwargs['data'])
+            # remove the passed hash data
+            del(kwargs['hash_data'])
 
         response = getattr(self.session, method)(uri, **kwargs)
         return self._handle_response(response)
@@ -1394,7 +1390,11 @@ class Client(object):
             ['address', self._wallet_address, 'address'],
         ]
 
-        return self._post('cancel', True, hash_data=hash_data)
+        json_data = {
+            'address': self._wallet_address
+        }
+
+        return self._post('cancel', True, hash_data=hash_data, json=json_data)
 
     # Withdraw Endpoints
 
