@@ -1,6 +1,13 @@
 Changelog
 =========
 
+v0.2.2 - 2018-01-20
+^^^^^^^^^^^^^^^^^^^
+
+**Fixed**
+
+- issue with hashed data in `cancel_order` function
+
 v0.2.1 - 2018-01-19
 ^^^^^^^^^^^^^^^^^^^
 
