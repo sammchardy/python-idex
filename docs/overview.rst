@@ -28,6 +28,14 @@ This is used to query the exchange for your balances, orders and trade history e
 
 Some calls will throw an IdexException unless the wallet address and private key have been set.
 
+
+Private Key
+-----------
+
+To perform and trading you will need both your wallet address and private key.
+
+Note: Your private key is in the form '0x4efd9306gf134f9ee432d7415fb385029db50e7bce1682b2442beba24cf0a91f'
+
 Initialise the client
 ---------------------
 
@@ -45,7 +53,7 @@ Pass your Wallet Address and Private Key
     client.set_wallet_address(address, private_key)
 
     # initialise the client with wallet address and private key
-    client = Client(address, private_ke)
+    client = Client(address, private_key)
 
 API Rate Limit
 --------------
