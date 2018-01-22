@@ -164,7 +164,7 @@ class Client(object):
         :returns: nothing
 
         """
-        self._wallet_address = address
+        self._wallet_address = address.lower()
         nonce_res = self.get_my_next_nonce()
         self._start_nonce = nonce_res['nonce']
         if private_key:
