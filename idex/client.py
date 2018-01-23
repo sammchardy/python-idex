@@ -1,14 +1,15 @@
-#!/usr/bin/env python
 # coding=utf-8
 
-from decimal import Decimal
 import binascii
 import codecs
-import time
+import re
 import requests
+import time
+
+from decimal import Decimal
 from ethereum.utils import sha3, ecsign, encode_int32
 
-from .exceptions import IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
+from .exceptions import IdexException, IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
 
 
 class Client(object):
@@ -164,10 +165,12 @@ class Client(object):
         :returns: nothing
 
         """
-        self._wallet_address = address
+        self._wallet_address = address.lower()
         nonce_res = self.get_my_next_nonce()
         self._start_nonce = nonce_res['nonce']
         if private_key:
+            if re.match(r"^0x[0-9a-zA-Z]{64}$", private_key) is None:
+                raise(IdexException("Private key in invalid format must satisfy 0x[0-9a-zA-Z]{64}"))
             self._private_key = private_key
 
     def get_wallet_address(self):
