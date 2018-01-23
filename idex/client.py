@@ -164,10 +164,11 @@ class Client(object):
         :returns: nothing
 
         """
-        self._wallet_address = address
+        self._wallet_address = address.lower()
         nonce_res = self.get_my_next_nonce()
         self._start_nonce = nonce_res['nonce']
         if private_key:
+            assert len(private_key) == 66, "Invalid private key. Forgot 0x in front?"
             self._private_key = private_key
 
     def get_wallet_address(self):
