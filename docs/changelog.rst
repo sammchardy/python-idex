@@ -1,6 +1,17 @@
 Changelog
 =========
 
+v0.2.4 - 2018-01-23
+^^^^^^^^^^^^^^^^^^^
+
+**Fixed**
+
+- set wallet address lowercase
+
+**Added**
+
+- validation of private key format
+
 v0.2.3 - 2018-01-20
 ^^^^^^^^^^^^^^^^^^^
 
