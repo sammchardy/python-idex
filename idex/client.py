@@ -771,7 +771,7 @@ class Client(object):
 
         res = None
         if currency[:2] == '0x':
-            for c in self._currency_addresses:
+            for token, c in self._currency_addresses.items():
                 if c['address'] == currency:
                     res = c
                     break

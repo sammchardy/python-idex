@@ -36,6 +36,14 @@ def test_valid_currency():
         client.get_currency('ETH')
 
 
+def test_valid_currency_address():
+    """Test valid currency"""
+
+    with requests_mock.mock() as m:
+        m.post('https://api.idex.market/returnCurrencies', json=currency_res, status_code=200)
+        client.get_currency('0x0000000000000000000000000000000000000000')
+
+
 def test_invalid_currency():
     """Test invalid currency"""
 
