@@ -1,5 +1,5 @@
 =============================
-Welcome to python-idex v0.2.4
+Welcome to python-idex v0.2.5
 =============================
 
 .. image:: https://img.shields.io/pypi/v/python-idex.svg
@@ -93,8 +93,8 @@ Other Exchanges
 
 If you use `Binance <https://www.binance.com/?ref=10099792>`_ check out my `python-binance <https://github.com/sammchardy/python-binance>`_ library.
 
-If you use `Quoinex <https://accounts.quoinex.com/sign-up?affiliate=PAxghztC67615>`_
-or `Qryptos <https://accounts.qryptos.com/sign-up?affiliate=PAxghztC67615>`_ check out my `python-quoine <https://github.com/sammchardy/python-quoine>`_ library.
+If you use `Quoinex <https://quoinex.com/>`_
+or `Qryptos <https://qryptos.com/>`_ check out my `python-quoine <https://github.com/sammchardy/python-quoine>`_ library.
 
 If you use `Exx <https://www.exx.com/r/e8d10713544a2da74f91178feae775f9>`_ check out my `python-exx <https://github.com/sammchardy/python-exx>`_ library.
 

@@ -1,6 +1,17 @@
 Changelog
 =========
 
+v0.2.5 - 2018-01-29
+^^^^^^^^^^^^^^^^^^^
+
+**Fixed**
+
+- cancel order signature...again
+
+**Added**
+
+- token name parameter to `get_balances` call
+
 v0.2.4 - 2018-01-23
 ^^^^^^^^^^^^^^^^^^^
 
