@@ -1396,7 +1396,6 @@ class Client(object):
         hash_data = [
             ['orderHash', order_hash, 'address'],
             ['nonce', self._get_nonce(), 'uint256'],
-            ['address', self._wallet_address, 'address'],
         ]
 
         json_data = {
