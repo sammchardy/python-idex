@@ -785,22 +785,18 @@ class Client(object):
 
         return res
 
-    def get_balances(self, token=None, complete=False):
+    def get_balances(self, address, complete=False):
         """Get available balances for an address (total deposited minus amount in open orders) indexed by token symbol.
 
         https://github.com/AuroraDAO/idex-api-docs#returnbalances
 
-        :param token: The name or address of the token to get the balance for
-        :type token: string or hex string e.g 'EOS' or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
+        :param address: Address to query balances of
+        :type address: address string
         :param complete: Include available balances along with the amount you have in open orders for each token (Default False)
         :param complete: bool
 
         .. code:: python
 
-            # use token name
-            balances = client.get_balances('ETH')
-
-            # use token address
             balances = client.get_balances('0xca82b7b95604f70b3ff5c6ede797a28b11b47d63')
 
         :returns: API Response
@@ -829,10 +825,8 @@ class Client(object):
 
         """
 
-        currency = self.get_currency(token)
-
         data = {
-            'address': currency['address']
+            'address': address
         }
 
         path = 'returnBalances'
