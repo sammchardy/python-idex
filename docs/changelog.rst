@@ -1,6 +1,14 @@
 Changelog
 =========
 
+v0.2.6 - 2018-01-29
+^^^^^^^^^^^^^^^^^^^
+
+**Fixed**
+
+- `get_currency` call with address for token
+
+
 v0.2.5 - 2018-01-29
 ^^^^^^^^^^^^^^^^^^^
 
