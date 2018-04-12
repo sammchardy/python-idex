@@ -13,7 +13,7 @@ from .exceptions import IdexException, IdexAPIException, IdexRequestException, I
 from .decorators import require_address, require_private_key
 
 
-class Client(object):
+class BaseClient(object):
 
     API_URL = 'https://api.idex.market'
 
@@ -50,16 +50,11 @@ class Client(object):
 
         self.session = self._init_session()
 
-        if address:
-            self.set_wallet_address(address, private_key)
-
-    def _init_session(self):
-
-        session = requests.session()
-        headers = {'Accept': 'application/json',
-                   'User-Agent': 'python-idex'}
-        session.headers.update(headers)
-        return session
+    def _get_headers(self):
+        return {
+            'Accept': 'application/json',
+            'User-Agent': 'python-idex'
+        }
 
     def _get_nonce(self):
         """Get a unique nonce for request
@@ -99,12 +94,10 @@ class Client(object):
     def _create_uri(self, path):
         return '{}/{}'.format(self.API_URL, path)
 
-    def _request(self, method, path, signed, **kwargs):
+    def _get_request_kwargs(self, signed, **kwargs):
 
         kwargs['json'] = kwargs.get('json', {})
         kwargs['headers'] = kwargs.get('headers', {})
-
-        uri = self._create_uri(path)
 
         if signed:
             # generate signature e.g. {'v': 28 (or 27), 'r': '0x...', 's': '0x...'}
@@ -116,40 +109,15 @@ class Client(object):
 
             # filter out contract address, not required
             if 'contract_address' in kwargs['json']:
-                del(kwargs['json']['contract_address'])
+                del (kwargs['json']['contract_address'])
 
             # remove the passed hash data
-            del(kwargs['hash_data'])
+            del (kwargs['hash_data'])
 
-        response = getattr(self.session, method)(uri, **kwargs)
-        return self._handle_response(response)
+        return kwargs
 
-    def _handle_response(self, response):
-        """Internal helper for handling API responses from the Quoine server.
-        Raises the appropriate exceptions when necessary; otherwise, returns the
-        response.
-        """
-        if not str(response.status_code).startswith('2'):
-            raise IdexAPIException(response)
-        try:
-            res = response.json()
-            if 'error' in res:
-                raise IdexAPIException(response)
-            return res
-        except ValueError:
-            raise IdexRequestException('Invalid Response: %s' % response.text)
-
-    def _get(self, path, signed=False, **kwargs):
-        return self._request('get', path, signed, **kwargs)
-
-    def _post(self, path, signed=False, **kwargs):
-        return self._request('post', path, signed, **kwargs)
-
-    def _put(self, path, signed=False, **kwargs):
-        return self._request('put', path, signed, **kwargs)
-
-    def _delete(self, path, signed=False, **kwargs):
-        return self._request('delete', path, signed, **kwargs)
+    def _init_session(self):
+        pass
 
     def set_wallet_address(self, address, private_key=None):
         """Set the wallet address. Optionally add the private_key, this is only required for trading.
@@ -185,6 +153,97 @@ class Client(object):
 
         """
         return self._wallet_address
+
+    def _num_to_decimal(self, number):
+        if type(number) == float:
+            number = Decimal(repr(number))
+        elif type(number) == int:
+            number = Decimal(number)
+        elif type(number) == str:
+            number = Decimal(number)
+
+        return number
+
+    def _parse_from_currency_quantity(self, currency_details, quantity):
+        if currency_details is None:
+            return None
+
+        f_q = Decimal(quantity)
+
+        if 'decimals' not in currency_details:
+            return f_q
+
+        # divide by currency_details['decimals']
+        d_str = "1{}".format(("0" * currency_details['decimals']))
+        res = f_q / Decimal(d_str)
+
+        return res
+
+    def _convert_to_currency_quantity(self, currency_details, quantity):
+        if currency_details is None:
+            return None
+
+        f_q = self._num_to_decimal(quantity)
+
+        if 'decimals' not in currency_details:
+            return f_q
+
+        # multiply by currency_details['decimals']
+        m_str = "1{}".format(("0" * currency_details['decimals']))
+        res = (f_q * Decimal(m_str)).to_integral_exact()
+
+        return str(res)
+
+
+class Client(BaseClient):
+
+    def __init__(self, address=None, private_key=None):
+
+        super().__init__(address, private_key)
+
+        if address:
+            self.set_wallet_address(address, private_key)
+
+    def _init_session(self):
+
+        session = requests.session()
+        session.headers.update(self._get_headers())
+        return session
+
+    def _request(self, method, path, signed, **kwargs):
+
+        kwargs = self._get_request_kwargs(signed, **kwargs)
+        uri = self._create_uri(path)
+
+        response = getattr(self.session, method)(uri, **kwargs)
+        return self._handle_response(response)
+
+    def _handle_response(self, response):
+        """Internal helper for handling API responses from the Quoine server.
+        Raises the appropriate exceptions when necessary; otherwise, returns the
+        response.
+        """
+        if not str(response.status_code).startswith('2'):
+            raise IdexAPIException(response, response.status_code, response.text)
+        try:
+            res = response.json()
+            if 'error' in res:
+                raise IdexAPIException(response, response.status_code, response.tex)
+            return res
+        except ValueError:
+            raise IdexRequestException('Invalid Response: %s' % response.text)
+
+    def _get(self, path, signed=False, **kwargs):
+        return self._request('get', path, signed, **kwargs)
+
+    def _post(self, path, signed=False, **kwargs):
+        return self._request('post', path, signed, **kwargs)
+
+    def _put(self, path, signed=False, **kwargs):
+        return self._request('put', path, signed, **kwargs)
+
+    def _delete(self, path, signed=False, **kwargs):
+        return self._request('delete', path, signed, **kwargs)
 
     # Market Endpoints
 
@@ -1116,29 +1175,8 @@ class Client(object):
         """
 
         currency_details = self.get_currency(currency)
-        if currency_details is None:
-            return None
 
-        f_q = Decimal(quantity)
-
-        if 'decimals' not in currency_details:
-            return f_q
-
-        # divide by currency_details['decimals']
-        d_str = "1{}".format(("0" * currency_details['decimals']))
-        res = f_q / Decimal(d_str)
-
-        return res
-
-    def _num_to_decimal(self, number):
-        if type(number) == float:
-            number = Decimal(repr(number))
-        elif type(number) == int:
-            number = Decimal(number)
-        elif type(number) == str:
-            number = Decimal(number)
-
-        return number
+        return self._parse_from_currency_quantity(currency_details, quantity)
 
     def convert_to_currency_quantity(self, currency, quantity):
         """Convert a float quantity to the correct decimal places
@@ -1150,19 +1188,8 @@ class Client(object):
 
         """
         currency_details = self.get_currency(currency)
-        if currency_details is None:
-            return None
 
-        f_q = self._num_to_decimal(quantity)
-
-        if 'decimals' not in currency_details:
-            return f_q
-
-        # multiply by currency_details['decimals']
-        m_str = "1{}".format(("0" * currency_details['decimals']))
-        res = (f_q * Decimal(m_str)).to_integral_exact()
-
-        return str(res)
+        return self._convert_to_currency_quantity(currency_details, quantity)
 
     @require_address
     def create_order(self, token_buy, token_sell, price, quantity):
