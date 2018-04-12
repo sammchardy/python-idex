@@ -522,6 +522,7 @@ class Client(object):
 
         return self._post('returnOpenOrders', False, json=data)
 
+    @require_address
     def get_my_open_orders(self, market):
         """Get your open orders for a given market
 
@@ -589,9 +590,6 @@ class Client(object):
 
         """
 
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
-
         return self.get_open_orders(market, self._wallet_address)
 
     def get_trade_history(self, market=None, address=None, start=None, end=None):
@@ -651,6 +649,7 @@ class Client(object):
 
         return self._post('returnTradeHistory', False, json=data)
 
+    @require_address
     def get_my_trade_history(self, market=None, start=None, end=None):
         """Get your past 200 trades for a given market, or up to 10000 trades between a range specified in UNIX timetsamps by the "start" and "end" properties of your JSON input.
 
@@ -695,9 +694,6 @@ class Client(object):
         :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
-
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
 
         return self.get_trade_history(market, self._wallet_address, start, end)
 
@@ -835,6 +831,7 @@ class Client(object):
 
         return self._post(path, False, json=data)
 
+    @require_address
     def get_my_balances(self, complete=False):
         """Get your available balances (total deposited minus amount in open orders) indexed by token symbol.
 
@@ -872,9 +869,6 @@ class Client(object):
         :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
-
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
 
         return self.get_balances(self._wallet_address, complete)
 
@@ -934,6 +928,7 @@ class Client(object):
 
         return self._post('returnDepositsWithdrawals', False, json=data)
 
+    @require_address
     def get_my_transfers(self, start=None, end=None):
         """Returns your deposit and withdrawal history within a range, specified by the "start" and "end" properties of the JSON input, both of which must be UNIX timestamps. Withdrawals can be marked as "PENDING" if they are queued for dispatch, "PROCESSING" if the transaction has been dispatched, and "COMPLETE" if the transaction has been mined.
 
@@ -977,9 +972,6 @@ class Client(object):
         :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
-
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
 
         return self.get_transfers(self._wallet_address, start, end)
 
@@ -1051,6 +1043,7 @@ class Client(object):
 
         return self._post('returnNextNonce', False, json=data)
 
+    @require_address
     def get_my_next_nonce(self):
         """Get the lowest nonce that you can use in one of the trade functions
 
@@ -1071,9 +1064,6 @@ class Client(object):
         :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
-
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
 
         return self.get_next_nonce(self._wallet_address)
 
@@ -1173,6 +1163,7 @@ class Client(object):
 
         return str(res)
 
+    @require_address
     def create_order(self, token_buy, token_sell, price, quantity):
         """Create a limit order
 
@@ -1230,6 +1221,8 @@ class Client(object):
 
         return self.create_order_wei(token_buy, token_sell, amount_buy, amount_sell)
 
+    @require_address
+    @require_private_key
     def create_order_wei(self, token_buy, token_sell, amount_buy, amount_sell):
         """Create a limit order using buy and sell amounts as integer value precision matching that token
 
@@ -1278,12 +1271,6 @@ class Client(object):
 
         """
 
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
-
-        if not self._private_key:
-            raise IdexPrivateKeyNotFoundException()
-
         contract_address = self._get_contract_address()
 
         buy_currency = self.get_currency(token_buy)
@@ -1302,6 +1289,8 @@ class Client(object):
 
         return self._post('order', True, hash_data=hash_data)
 
+    @require_address
+    @require_private_key
     def create_trade(self, order_hash, token, amount):
         """Make a trade
 
@@ -1342,12 +1331,6 @@ class Client(object):
 
         """
 
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
-
-        if not self._private_key:
-            raise IdexPrivateKeyNotFoundException()
-
         amount_trade = self.convert_to_currency_quantity(token, amount)
 
         hash_data = [
@@ -1359,6 +1342,8 @@ class Client(object):
 
         return self._post('trade', True, hash_data=hash_data)
 
+    @require_address
+    @require_private_key
     def cancel_order(self, order_hash):
         """Cancel an order
 
@@ -1381,12 +1366,6 @@ class Client(object):
 
         """
 
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
-
-        if not self._private_key:
-            raise IdexPrivateKeyNotFoundException()
-
         hash_data = [
             ['orderHash', order_hash, 'address'],
             ['nonce', self._get_nonce(), 'uint256'],
@@ -1400,6 +1379,8 @@ class Client(object):
 
     # Withdraw Endpoints
 
+    @require_address
+    @require_private_key
     def withdraw(self, amount, token):
         """Withdraw funds from IDEX to your wallet address
 
@@ -1417,12 +1398,6 @@ class Client(object):
         :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
 
         """
-
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
-
-        if not self._private_key:
-            raise IdexPrivateKeyNotFoundException()
 
         contract_address = self._get_contract_address()
 
