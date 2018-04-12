@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import websockets as ws
-from websockets.client import Connect
 
 
 class ReconnectingWebsocket:
@@ -29,39 +28,35 @@ class ReconnectingWebsocket:
     async def _run(self):
 
         keep_waiting = True
-        try:
 
-            self._socket = await Connect(
-                self.STREAM_URL,
-                loop=self._loop
-            )
-            print("socket1:{}".format(self._socket))
-
-            self._reconnect_wait = self.MIN_RECONNECT_WAIT
-            while keep_waiting:
-                try:
-                    evt = await asyncio.wait_for(self._socket.recv(), timeout=self.TIMEOUT)
-                except asyncio.TimeoutError:
-                    print("no message in {} seconds".format(self.TIMEOUT))
-                    await self._socket.ping()
-                except asyncio.CancelledError:
-                    print("cancelled error")
-                    await self._socket.ping()
-                else:
+        async with ws.connect(self.STREAM_URL) as socket:
+            self._socket = socket
+            try:
+                self._reconnect_wait = self.MIN_RECONNECT_WAIT
+                while keep_waiting:
                     try:
-                        evt_obj = json.loads(evt)
-                    except ValueError:
-                        pass
+                        evt = await asyncio.wait_for(self._socket.recv(), timeout=self.TIMEOUT)
+                    except asyncio.TimeoutError:
+                        print("no message in {} seconds".format(self.TIMEOUT))
+                        await self._socket.ping()
+                    except asyncio.CancelledError:
+                        print("cancelled error")
+                        await self._socket.ping()
                     else:
-                        await self._coro(evt_obj)
+                        try:
+                            evt_obj = json.loads(evt)
+                        except ValueError:
+                            pass
+                        else:
+                            await self._coro(evt_obj)
 
-        except ws.ConnectionClosed as e:
-            keep_waiting = False
-            await self._reconnect()
-        except Exception as e:
-            self._log.debug('ws exception:{}'.format(e))
-            keep_waiting = False
-        #    await self._reconnect()
+            except ws.ConnectionClosed as e:
+                keep_waiting = False
+                await self._reconnect()
+            except Exception as e:
+                self._log.debug('ws exception:{}'.format(e))
+                keep_waiting = False
+            #    await self._reconnect()
 
     async def _reconnect(self):
         await self.cancel()
