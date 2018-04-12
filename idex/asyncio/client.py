@@ -3,7 +3,7 @@ import asyncio
 import re
 
 from idex.client import BaseClient, Client
-from idex.exceptions import IdexException, IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
+from idex.exceptions import IdexException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
 from idex.decorators import require_address, require_private_key
 
 
