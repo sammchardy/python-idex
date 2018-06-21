@@ -6,10 +6,10 @@ import websockets as ws
 
 class ReconnectingWebsocket:
 
-    STREAM_URL = 'wss://api.idex.market'
+    STREAM_URL = 'wss://api-cluster.idex.market'
     MAX_RECONNECTS = 3
     MIN_RECONNECT_WAIT = 0.1
-    TIMEOUT = 30
+    TIMEOUT = 10
 
     def __init__(self, loop, coro):
         self._loop = loop
