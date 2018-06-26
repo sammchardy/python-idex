@@ -1,6 +1,22 @@
 Changelog
 =========
 
+v0.3.0 - 2018-06-21
+^^^^^^^^^^^^^^^^^^^
+
+**Added**
+
+- async versions of REST API
+- async websocket interface
+
+**Fixed**
+
+- extracted dependencies from pyethereum to utils to fix Windows installs
+
+**Removed**
+
+- Python 3.3 and 3.4 support
+
 v0.2.7 - 2018-01-30
 ^^^^^^^^^^^^^^^^^^^
 
