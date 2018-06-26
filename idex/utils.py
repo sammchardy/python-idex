@@ -11,8 +11,8 @@ from rlp.utils import str_to_bytes
 
 
 # Functions - ecsign
-def big_endian_to_int(x): return big_endian_int.deserialize(
-    str_to_bytes(x).lstrip(b'\x00'))
+def big_endian_to_int(x):
+    return big_endian_int.deserialize(str_to_bytes(x).lstrip(b'\x00'))
 
 
 def safe_ord(value):
@@ -35,11 +35,13 @@ def ecsign(rawhash, key):
 
 
 # Functions - sha3
-def sha3(x): return keccak.new(digest_bits=256, data=x).digest()
+def sha3(x):
+    return keccak.new(digest_bits=256, data=x).digest()
 
 
 # Functions - encode_int32
-def int_to_big_endian(x): return big_endian_int.serialize(x)
+def int_to_big_endian(x):
+    return big_endian_int.serialize(x)
 
 
 def zpad(x, l):
