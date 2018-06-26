@@ -199,7 +199,7 @@ class Client(BaseClient):
 
     def __init__(self, address=None, private_key=None):
 
-        super().__init__(address, private_key)
+        super(Client, self).__init__(address, private_key)
 
         if address:
             self.set_wallet_address(address, private_key)
