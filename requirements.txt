@@ -1,2 +1,4 @@
-ethereum==2.2.0
-requests==2.18.4
+requests
+coincurve>=7.0.0
+py_ecc
+pycryptodome>=3.5.1,<4

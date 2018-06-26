@@ -7,12 +7,13 @@ import requests
 import time
 
 from decimal import Decimal
-from ethereum.utils import sha3, ecsign, encode_int32
 
-from .exceptions import IdexException, IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
+from .exceptions import IdexException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
+from .decorators import require_address, require_private_key
+from .utils import sha3, ecsign, encode_int32
 
 
-class Client(object):
+class BaseClient(object):
 
     API_URL = 'https://api.idex.market'
 
@@ -49,16 +50,11 @@ class Client(object):
 
         self.session = self._init_session()
 
-        if address:
-            self.set_wallet_address(address, private_key)
-
-    def _init_session(self):
-
-        session = requests.session()
-        headers = {'Accept': 'application/json',
-                   'User-Agent': 'python-idex'}
-        session.headers.update(headers)
-        return session
+    def _get_headers(self):
+        return {
+            'Accept': 'application/json',
+            'User-Agent': 'python-idex'
+        }
 
     def _get_nonce(self):
         """Get a unique nonce for request
@@ -98,12 +94,10 @@ class Client(object):
     def _create_uri(self, path):
         return '{}/{}'.format(self.API_URL, path)
 
-    def _request(self, method, path, signed, **kwargs):
+    def _get_request_kwargs(self, signed, **kwargs):
 
         kwargs['json'] = kwargs.get('json', {})
         kwargs['headers'] = kwargs.get('headers', {})
-
-        uri = self._create_uri(path)
 
         if signed:
             # generate signature e.g. {'v': 28 (or 27), 'r': '0x...', 's': '0x...'}
@@ -115,40 +109,15 @@ class Client(object):
 
             # filter out contract address, not required
             if 'contract_address' in kwargs['json']:
-                del(kwargs['json']['contract_address'])
+                del (kwargs['json']['contract_address'])
 
             # remove the passed hash data
-            del(kwargs['hash_data'])
+            del (kwargs['hash_data'])
 
-        response = getattr(self.session, method)(uri, **kwargs)
-        return self._handle_response(response)
+        return kwargs
 
-    def _handle_response(self, response):
-        """Internal helper for handling API responses from the Quoine server.
-        Raises the appropriate exceptions when necessary; otherwise, returns the
-        response.
-        """
-        if not str(response.status_code).startswith('2'):
-            raise IdexAPIException(response)
-        try:
-            res = response.json()
-            if 'error' in res:
-                raise IdexAPIException(response)
-            return res
-        except ValueError:
-            raise IdexRequestException('Invalid Response: %s' % response.text)
-
-    def _get(self, path, signed=False, **kwargs):
-        return self._request('get', path, signed, **kwargs)
-
-    def _post(self, path, signed=False, **kwargs):
-        return self._request('post', path, signed, **kwargs)
-
-    def _put(self, path, signed=False, **kwargs):
-        return self._request('put', path, signed, **kwargs)
-
-    def _delete(self, path, signed=False, **kwargs):
-        return self._request('delete', path, signed, **kwargs)
+    def _init_session(self):
+        pass
 
     def set_wallet_address(self, address, private_key=None):
         """Set the wallet address. Optionally add the private_key, this is only required for trading.
@@ -184,6 +153,97 @@ class Client(object):
 
         """
         return self._wallet_address
+
+    def _num_to_decimal(self, number):
+        if type(number) == float:
+            number = Decimal(repr(number))
+        elif type(number) == int:
+            number = Decimal(number)
+        elif type(number) == str:
+            number = Decimal(number)
+
+        return number
+
+    def _parse_from_currency_quantity(self, currency_details, quantity):
+        if currency_details is None:
+            return None
+
+        f_q = Decimal(quantity)
+
+        if 'decimals' not in currency_details:
+            return f_q
+
+        # divide by currency_details['decimals']
+        d_str = "1{}".format(("0" * currency_details['decimals']))
+        res = f_q / Decimal(d_str)
+
+        return res
+
+    def _convert_to_currency_quantity(self, currency_details, quantity):
+        if currency_details is None:
+            return None
+
+        f_q = self._num_to_decimal(quantity)
+
+        if 'decimals' not in currency_details:
+            return f_q
+
+        # multiply by currency_details['decimals']
+        m_str = "1{}".format(("0" * currency_details['decimals']))
+        res = (f_q * Decimal(m_str)).to_integral_exact()
+
+        return str(res)
+
+
+class Client(BaseClient):
+
+    def __init__(self, address=None, private_key=None):
+
+        super(Client, self).__init__(address, private_key)
+
+        if address:
+            self.set_wallet_address(address, private_key)
+
+    def _init_session(self):
+
+        session = requests.session()
+        session.headers.update(self._get_headers())
+        return session
+
+    def _request(self, method, path, signed, **kwargs):
+
+        kwargs = self._get_request_kwargs(signed, **kwargs)
+        uri = self._create_uri(path)
+
+        response = getattr(self.session, method)(uri, **kwargs)
+        return self._handle_response(response)
+
+    def _handle_response(self, response):
+        """Internal helper for handling API responses from the Quoine server.
+        Raises the appropriate exceptions when necessary; otherwise, returns the
+        response.
+        """
+        if not str(response.status_code).startswith('2'):
+            raise IdexAPIException(response, response.status_code, response.text)
+        try:
+            res = response.json()
+            if 'error' in res:
+                raise IdexAPIException(response, response.status_code, response.text)
+            return res
+        except ValueError:
+            raise IdexRequestException('Invalid Response: %s' % response.text)
+
+    def _get(self, path, signed=False, **kwargs):
+        return self._request('get', path, signed, **kwargs)
+
+    def _post(self, path, signed=False, **kwargs):
+        return self._request('post', path, signed, **kwargs)
+
+    def _put(self, path, signed=False, **kwargs):
+        return self._request('put', path, signed, **kwargs)
+
+    def _delete(self, path, signed=False, **kwargs):
+        return self._request('delete', path, signed, **kwargs)
 
     # Market Endpoints
 
@@ -522,6 +582,7 @@ class Client(object):
 
         return self._post('returnOpenOrders', False, json=data)
 
+    @require_address
     def get_my_open_orders(self, market):
         """Get your open orders for a given market
 
@@ -589,9 +650,6 @@ class Client(object):
 
         """
 
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
-
         return self.get_open_orders(market, self._wallet_address)
 
     def get_trade_history(self, market=None, address=None, start=None, end=None):
@@ -651,6 +709,7 @@ class Client(object):
 
         return self._post('returnTradeHistory', False, json=data)
 
+    @require_address
     def get_my_trade_history(self, market=None, start=None, end=None):
         """Get your past 200 trades for a given market, or up to 10000 trades between a range specified in UNIX timetsamps by the "start" and "end" properties of your JSON input.
 
@@ -695,9 +754,6 @@ class Client(object):
         :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
-
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
 
         return self.get_trade_history(market, self._wallet_address, start, end)
 
@@ -835,6 +891,7 @@ class Client(object):
 
         return self._post(path, False, json=data)
 
+    @require_address
     def get_my_balances(self, complete=False):
         """Get your available balances (total deposited minus amount in open orders) indexed by token symbol.
 
@@ -872,9 +929,6 @@ class Client(object):
         :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
-
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
 
         return self.get_balances(self._wallet_address, complete)
 
@@ -934,6 +988,7 @@ class Client(object):
 
         return self._post('returnDepositsWithdrawals', False, json=data)
 
+    @require_address
     def get_my_transfers(self, start=None, end=None):
         """Returns your deposit and withdrawal history within a range, specified by the "start" and "end" properties of the JSON input, both of which must be UNIX timestamps. Withdrawals can be marked as "PENDING" if they are queued for dispatch, "PROCESSING" if the transaction has been dispatched, and "COMPLETE" if the transaction has been mined.
 
@@ -977,9 +1032,6 @@ class Client(object):
         :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
-
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
 
         return self.get_transfers(self._wallet_address, start, end)
 
@@ -1051,6 +1103,7 @@ class Client(object):
 
         return self._post('returnNextNonce', False, json=data)
 
+    @require_address
     def get_my_next_nonce(self):
         """Get the lowest nonce that you can use in one of the trade functions
 
@@ -1071,9 +1124,6 @@ class Client(object):
         :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
 
         """
-
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
 
         return self.get_next_nonce(self._wallet_address)
 
@@ -1125,29 +1175,8 @@ class Client(object):
         """
 
         currency_details = self.get_currency(currency)
-        if currency_details is None:
-            return None
 
-        f_q = Decimal(quantity)
-
-        if 'decimals' not in currency_details:
-            return f_q
-
-        # divide by currency_details['decimals']
-        d_str = "1{}".format(("0" * currency_details['decimals']))
-        res = f_q / Decimal(d_str)
-
-        return res
-
-    def _num_to_decimal(self, number):
-        if type(number) == float:
-            number = Decimal(repr(number))
-        elif type(number) == int:
-            number = Decimal(number)
-        elif type(number) == str:
-            number = Decimal(number)
-
-        return number
+        return self._parse_from_currency_quantity(currency_details, quantity)
 
     def convert_to_currency_quantity(self, currency, quantity):
         """Convert a float quantity to the correct decimal places
@@ -1159,20 +1188,10 @@ class Client(object):
 
         """
         currency_details = self.get_currency(currency)
-        if currency_details is None:
-            return None
 
-        f_q = self._num_to_decimal(quantity)
+        return self._convert_to_currency_quantity(currency_details, quantity)
 
-        if 'decimals' not in currency_details:
-            return f_q
-
-        # multiply by currency_details['decimals']
-        m_str = "1{}".format(("0" * currency_details['decimals']))
-        res = (f_q * Decimal(m_str)).to_integral_exact()
-
-        return str(res)
-
+    @require_address
     def create_order(self, token_buy, token_sell, price, quantity):
         """Create a limit order
 
@@ -1230,6 +1249,8 @@ class Client(object):
 
         return self.create_order_wei(token_buy, token_sell, amount_buy, amount_sell)
 
+    @require_address
+    @require_private_key
     def create_order_wei(self, token_buy, token_sell, amount_buy, amount_sell):
         """Create a limit order using buy and sell amounts as integer value precision matching that token
 
@@ -1278,12 +1299,6 @@ class Client(object):
 
         """
 
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
-
-        if not self._private_key:
-            raise IdexPrivateKeyNotFoundException()
-
         contract_address = self._get_contract_address()
 
         buy_currency = self.get_currency(token_buy)
@@ -1302,6 +1317,8 @@ class Client(object):
 
         return self._post('order', True, hash_data=hash_data)
 
+    @require_address
+    @require_private_key
     def create_trade(self, order_hash, token, amount):
         """Make a trade
 
@@ -1342,12 +1359,6 @@ class Client(object):
 
         """
 
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
-
-        if not self._private_key:
-            raise IdexPrivateKeyNotFoundException()
-
         amount_trade = self.convert_to_currency_quantity(token, amount)
 
         hash_data = [
@@ -1359,6 +1370,8 @@ class Client(object):
 
         return self._post('trade', True, hash_data=hash_data)
 
+    @require_address
+    @require_private_key
     def cancel_order(self, order_hash):
         """Cancel an order
 
@@ -1381,12 +1394,6 @@ class Client(object):
 
         """
 
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
-
-        if not self._private_key:
-            raise IdexPrivateKeyNotFoundException()
-
         hash_data = [
             ['orderHash', order_hash, 'address'],
             ['nonce', self._get_nonce(), 'uint256'],
@@ -1400,6 +1407,8 @@ class Client(object):
 
     # Withdraw Endpoints
 
+    @require_address
+    @require_private_key
     def withdraw(self, amount, token):
         """Withdraw funds from IDEX to your wallet address
 
@@ -1417,12 +1426,6 @@ class Client(object):
         :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
 
         """
-
-        if not self._wallet_address:
-            raise IdexWalletAddressNotFoundException()
-
-        if not self._private_key:
-            raise IdexPrivateKeyNotFoundException()
 
         contract_address = self._get_contract_address()
 
