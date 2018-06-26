@@ -228,7 +228,7 @@ class Client(BaseClient):
         try:
             res = response.json()
             if 'error' in res:
-                raise IdexAPIException(response, response.status_code, response.tex)
+                raise IdexAPIException(response, response.status_code, response.text)
             return res
         except ValueError:
             raise IdexRequestException('Invalid Response: %s' % response.text)
