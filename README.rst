@@ -35,9 +35,10 @@ Documentation
 Features
 --------
 
-- Implementation of all REST endpoints except for withdraw/deposit.
+- Implementation of all REST endpoints except for deposit.
 - Helper functions for your wallet address
 - Response exception handling
+- Websockets for Python 3.5+
 
 Quick Start
 -----------
@@ -48,6 +49,9 @@ Register an account with `IDEX <https://idex.market/>`_.
 
     pip install python-idex
 
+
+Synchronous Examples
+--------------------
 
 .. code:: python
 
@@ -70,13 +74,63 @@ Register an account with `IDEX <https://idex.market/>`_.
     order = client.create_order('SAN', 'ETH', '0.001', '10000')
 
 
+Async Examples for Python 3.5+
+------------------------------
+
+.. code:: python
+
+    from idex.asyncio import AsyncClient, IdexSocketManager
+
+    loop = None
+
+    async def main():
+        global loop
+
+        # Initialise the client
+        client = await AsyncClient()
+
+        # get currencies
+        currencies = await client.get_currencies()
+
+        # get market depth
+        depth = await client.get_order_book('ETH_SAN')
+
+        # get your balances
+        balances = await client.get_my_balances()
+
+        # get your open orders
+        orders = await client.get_my_open_orders('ETH_SAN')
+
+        # create a limit order
+        order = await client.create_order('SAN', 'ETH', '0.001', '10000')
+
+        # Initialise the socket manager
+        ism = await IdexSocketManager.create(loop)
+
+        # Coroutine to receive messages
+        async def handle_evt(msg, topic):
+            print("topic:{} type:{}".format(topic, msg['type']))
+
+        # Subscribe to updates for the ETH_NPXS market
+        await ism.subscribe('ETH_NPXS', handle_evt)
+
+        # keep the script running so we can retrieve websocket events
+        while True:
+            await asyncio.sleep(20, loop=loop)
+
+
+    if __name__ == "__main__":
+        # get a loop and switch from synchronous to async
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main())
+
+
 For more `check out the documentation <https://github.com/AuroraDAO/idex-api-docs>`_.
 
 TODO
 ----
 
-- Withdraw/deposit endpoints
-- Websocket endpoints
+- Deposit endpoints
 
 Donate
 ------

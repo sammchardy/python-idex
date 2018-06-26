@@ -15,6 +15,8 @@ Contents
    orders
    account
    withdraw
+   async
+   websockets
    exceptions
    changelog
 
