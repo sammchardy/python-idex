@@ -47,6 +47,7 @@ def install_requires():
         requires.extend(['rlp==0.4.7'])
     else:
         requires.extend(['rlp>=1.0.0,<2.0.0', 'websockets>=4.0.0', 'aiohttp>=2.3.0'])
+    return requires
 
 
 setup(
