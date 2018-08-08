@@ -22,7 +22,7 @@ class BaseClient(object):
     _contract_address = None
     _currency_addresses = {}
 
-    def __init__(self, address=None, private_key=None):
+    def __init__(self, address=None, private_key=None, requests_params=None):
         """IDEX API Client constructor
 
         Takes an optional wallet address parameter which enables helper functions
@@ -33,6 +33,8 @@ class BaseClient(object):
         :type address: address string
         :param private_key: optional - The private key for the address
         :type private_key: string
+        :param requests_params: optional - Dictionary of requests params to use for all calls
+        :type requests_params: dict.
 
         .. code:: python
 
@@ -47,6 +49,7 @@ class BaseClient(object):
 
         self._start_nonce = None
         self._client_started = int(time.time() * 1000)
+        self._requests_params = requests_params
 
         self.session = self._init_session()
 
@@ -98,6 +101,10 @@ class BaseClient(object):
 
         kwargs['json'] = kwargs.get('json', {})
         kwargs['headers'] = kwargs.get('headers', {})
+
+        # add our global requests params
+        if self._requests_params:
+            kwargs.update(self._requests_params)
 
         if signed:
             # generate signature e.g. {'v': 28 (or 27), 'r': '0x...', 's': '0x...'}
