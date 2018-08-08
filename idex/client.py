@@ -102,6 +102,9 @@ class BaseClient(object):
         kwargs['json'] = kwargs.get('json', {})
         kwargs['headers'] = kwargs.get('headers', {})
 
+        # set default requests timeout
+        kwargs['timeout'] = 10
+
         # add our global requests params
         if self._requests_params:
             kwargs.update(self._requests_params)
