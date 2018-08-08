@@ -71,18 +71,18 @@ You can set custom requests parameters for all API calls when creating the clien
 .. code:: python
 
     # for non-asyncio
-    client = Client("api-key", "api-secret", {"verify": False, "timeout": 20})
+    client = Client(address, private_key, {"verify": False, "timeout": 20})
 
     # for asyncio
-    client = Client("api-key", "api-secret", {"verify_ssl": False, "timeout": 20})
+    client = Client(address, private_key, {"verify_ssl": False, "timeout": 20})
 
 You may also pass custom requests parameters through any API call to override default settings or the above settingsspecify new ones like the example below.
 
 .. code:: python
 
-    # this would result in verify: False and timeout: 5 for the get_all_orders call
-    client = Client("api-key", "api-secret", {"verify": False, "timeout": 20})
-    client.get_all_orders(symbol='BNBBTC', requests_params={'timeout': 5})
+    # this would result in verify: False and timeout: 5 for the get_ticker call
+    client = Client(address, private_key, {"verify": False, "timeout": 20})
+    client.get_ticker('ETH_SAN', requests_params={'timeout': 5})
 
 Check out the `requests documentation <http://docs.python-requests.org/en/master/>`_ for all options.
 
@@ -98,10 +98,10 @@ You can use the Requests Settings method above
     }
 
     # in the Client instantiation
-    client = Client("api-key", "api-secret", {'proxies': proxies})
+    client = Client(address, private_key, {'proxies': proxies})
 
     # or on an individual call
-    client.get_all_orders(symbol='BNBBTC', requests_params={'proxies': proxies})
+    client.get_ticker('ETH_SAN', requests_params={'proxies': proxies})
 
 Or set an environment variable for your proxy if required to work across all requests.
 
