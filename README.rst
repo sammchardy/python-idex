@@ -1,5 +1,5 @@
 =============================
-Welcome to python-idex v0.3.0
+Welcome to python-idex v0.3.3
 =============================
 
 .. image:: https://img.shields.io/pypi/v/python-idex.svg
