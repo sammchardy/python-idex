@@ -441,7 +441,7 @@ class Client(BaseClient):
 
         return self._post('returnOrderBook')
 
-    def get_order_book(self, market):
+    def get_order_book(self, market, count):
         """Get order book for selected market
 
         Each market returned will have an asks and bids property containing all the sell orders and buy orders sorted by best price. Order objects will contain a price amount total and orderHash property but also a params property which will contain additional data about the order useful for filling or verifying it.
@@ -450,6 +450,8 @@ class Client(BaseClient):
 
         :param market: Name of market e.g. ETH_SAN
         :type market: string
+        :param count: Number of records to be returned per asks/bids segment. Default 1, maximum 100.
+        :type count: int
 
         .. code:: python
 
@@ -509,7 +511,8 @@ class Client(BaseClient):
         """
 
         data = {
-            'market': market
+            'market': market,
+            'count': count
         }
 
         return self._post('returnOrderBook', False, json=data)
