@@ -663,7 +663,7 @@ class Client(BaseClient):
 
         return self.get_open_orders(market, self._wallet_address)
 
-    def get_trade_history(self, market=None, address=None, start=None, end=None):
+    def get_trade_history(self, market=None, address=None, start=None, end=None, sort='desc', cursor=None):
         """Get the past 200 trades for a given market and address, or up to 10000 trades between a range specified in UNIX timetsamps by the "start" and "end" properties of your JSON input.
 
         https://github.com/AuroraDAO/idex-api-docs#returntradehistory
@@ -676,6 +676,12 @@ class Client(BaseClient):
         :type start: int
         :param end: optional - The inclusive UNIX timestamp marking the latest trade that will be returned in the response. (Default - current timestamp)
         :type end: int
+        :param end: optional - Number of records to be returned per request. Valid range: 1 .. 100
+        :type count: int
+        :param sort: optional - Possible values are asc (oldest first) and desc (newest first). Defaults to desc.
+        :type sort: string
+        :param cursor: optional - For pagination. Provide the value returned in the idex-next-cursor HTTP header to request the next slice (or page). This endpoint uses the tid property of a record for the cursor.
+        :type cursor: string
 
         .. code:: python
 
@@ -717,6 +723,12 @@ class Client(BaseClient):
             data['start'] = start
         if end:
             data['end'] = end
+        if count:
+            data['count'] = count
+        if sort:
+            data['sort'] = sort
+        if cursor:
+            data['cursor'] = cursor
 
         return self._post('returnTradeHistory', False, json=data)
 
