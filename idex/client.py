@@ -663,7 +663,7 @@ class Client(BaseClient):
 
         return self.get_open_orders(market, self._wallet_address)
 
-    def get_trade_history(self, market=None, address=None, start=None, end=None, sort='desc', cursor=None):
+    def get_trade_history(self, market=None, address=None, start=None, end=None, count=10, sort='desc', cursor=None):
         """Get the past 200 trades for a given market and address, or up to 10000 trades between a range specified in UNIX timetsamps by the "start" and "end" properties of your JSON input.
 
         https://github.com/AuroraDAO/idex-api-docs#returntradehistory
