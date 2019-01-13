@@ -515,7 +515,7 @@ class Client(BaseClient):
 
         return self._post('returnOrderBook', False, json=data)
 
-    def get_open_orders(self, market, address):
+    def get_open_orders(self, market, address, count = 10):
         """Get the open orders for a given market and address
 
         Output is similar to the output for get_order_book() except that orders are not sorted by type or price, but are rather displayed in the order of insertion. As is the case with get_order_book( there is a params property of the response value that contains details on the order which can help with verifying its authenticity.
@@ -526,6 +526,8 @@ class Client(BaseClient):
         :type market: string
         :param address: Address to return open orders associated with
         :type address: address string
+        :param count: amount of results to return
+        :type count: int
 
         .. code:: python
 
@@ -588,13 +590,14 @@ class Client(BaseClient):
 
         data = {
             'market': market,
-            'address': address
+            'address': address,
+            'count': count
         }
 
         return self._post('returnOpenOrders', False, json=data)
 
     @require_address
-    def get_my_open_orders(self, market):
+    def get_my_open_orders(self, market, count = 10):
         """Get your open orders for a given market
 
         Output is similar to the output for get_order_book() except that orders are not sorted by type or price, but are rather displayed in the order of insertion. As is the case with get_order_book( there is a params property of the response value that contains details on the order which can help with verifying its authenticity.
@@ -603,6 +606,8 @@ class Client(BaseClient):
 
         :param market: Name of market e.g. ETH_SAN
         :type market: string
+        :param count: amount of results to return
+        :type count: int
 
         .. code:: python
 
@@ -661,7 +666,7 @@ class Client(BaseClient):
 
         """
 
-        return self.get_open_orders(market, self._wallet_address)
+        return self.get_open_orders(market, self._wallet_address, count)
 
     def get_trade_history(self, market=None, address=None, start=None, end=None, count=10, sort='desc', cursor=None):
         """Get the past 200 trades for a given market and address, or up to 10000 trades between a range specified in UNIX timetsamps by the "start" and "end" properties of your JSON input.
