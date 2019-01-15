@@ -63,7 +63,10 @@ class ReconnectingWebsocket:
         self._reconnects += 1
         if self._reconnects < self.MAX_RECONNECTS:
 
-            self._log.debug("websocket {} reconnecting {} reconnects left".format(self._path, self.MAX_RECONNECTS - self._reconnects))
+            self._log.debug("websocket {} reconnecting {} reconnects left".format(
+                self._path,
+                self.MAX_RECONNECTS - self._reconnects)
+            )
             await asyncio.sleep(self._reconnect_wait)
             self._reconnect_wait *= 3
             self._connect()
