@@ -218,7 +218,7 @@ class BaseClient(object):
         m_str = "1{}".format(("0" * currency_details['decimals']))
         res = (f_q * Decimal(m_str)).to_integral_exact()
 
-        return str(res)
+        return '{:d}'.format(int(res))
 
 
 class Client(BaseClient):
