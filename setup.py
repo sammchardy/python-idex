@@ -42,7 +42,7 @@ def find_version(*file_paths):
 
 def install_requires():
 
-    requires = ['requests', 'coincurve>=7.0.0', 'py_ecc', 'pycryptodome>=3.5.1,<4', 'rlp==0.4.7']
+    requires = ['requests', 'coincurve>=7.0.0', 'py_ecc==1.4.2', 'pycryptodome>=3.5.1,<4', 'rlp==0.4.7']
     if sys.version_info > (3, 3):
         requires.extend(['websockets>=4.0.0', 'aiohttp>=2.3.0'])
     print("installing:{}".format(requires))
