@@ -35,9 +35,11 @@ class AsyncClient(BaseClient):
         uri = self._create_uri(path)
 
         async with getattr(self.session, method)(uri, **kwargs) as response:
+            self._last_response = response
             return await self._handle_response(response)
 
-    async def _handle_response(self, response):
+    @staticmethod
+    async def _handle_response(response):
         """Internal helper for handling API responses from the Quoine server.
         Raises the appropriate exceptions when necessary; otherwise, returns the
         response.

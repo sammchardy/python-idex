@@ -50,6 +50,7 @@ class BaseClient(object):
         self._start_nonce = None
         self._client_started = int(time.time() * 1000)
         self._requests_params = requests_params
+        self._last_response = None
 
         self.session = self._init_session()
 
@@ -164,6 +165,18 @@ class BaseClient(object):
         """
         return self._wallet_address
 
+    def get_last_response(self):
+        """Get the last response object for inspection
+
+        .. code:: python
+
+            response = client.get_last_response()
+
+        :returns: response objects
+
+        """
+        return self._last_response
+
     @staticmethod
     def _num_to_decimal(number):
         if type(number) == float:
@@ -228,6 +241,7 @@ class Client(BaseClient):
         uri = self._create_uri(path)
 
         response = getattr(self.session, method)(uri, **kwargs)
+        self._last_response = response
         return self._handle_response(response)
 
     def _handle_response(self, response):
