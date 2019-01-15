@@ -124,6 +124,14 @@ class AsyncClient(BaseClient):
         return await self.get_open_orders(market, self._wallet_address, count, cursor)
     get_my_open_orders.__doc__ = Client.get_my_open_orders.__doc__
 
+    async def get_order_status(self, order_hash):
+        data = {
+            'orderHash': order_hash
+        }
+
+        return await self._post('returnOrderStatus', False, json=data)
+    get_order_status.__doc__ = Client.get_order_status.__doc__
+
     async def get_trade_history(self, market=None, address=None, start=None, end=None, count=10, sort='desc', cursor=None):
         data = {}
         if market:

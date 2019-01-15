@@ -705,6 +705,57 @@ class Client(BaseClient):
 
         return self.get_open_orders(market, self._wallet_address, count, cursor)
 
+    def get_order_status(self, order_hash):
+        """Returns a single order
+
+        https://docs.idex.market/#operation/returnOrderStatus
+
+        :param order_hash: The order hash to query for associated trades
+        :type order_hash: 256-bit hex string
+
+        .. code:: python
+
+            status = client.get_order_status('0xca82b7b95604f70b3ff5c6ede797a28b11b47d63')
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            {
+                "timestamp": 1516415000,
+                "market": "ETH_AURA",
+                "orderNumber": 2101,
+                "orderHash": "0x3fe808be7b5df3747e5534056e9ff45ead5b1fcace430d7b4092e5fcd7161e21",
+                "price": "0.000129032258064516",
+                "amount": "3100",
+                "total": "0.4",
+                "type": "buy",
+                "params": {
+                    "tokenBuy": "0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098",
+                    "buyPrecision": 18,
+                    "amountBuy": "3100000000000000000000",
+                    "tokenSell": "0x0000000000000000000000000000000000000000",
+                    "sellPrecision": 18,
+                    "amountSell": "400000000000000000",
+                    "expires": 100000,
+                    "nonce": "1",
+                    "user": "0x57b080554ebafc8b17f4a6fd090c18fc8c9188a0"
+                },
+                "filled": "1900",
+                "initialAmount": "5000",
+                "status": "open"
+            }
+
+        :raises:  IdexResponseException,  IdexAPIException
+
+        """
+
+        data = {
+            'orderHash': order_hash
+        }
+
+        return self._post('returnOrderStatus', False, json=data)
+
     def get_trade_history(self, market=None, address=None, start=None, end=None, count=10, sort='desc', cursor=None):
         """Get the past 200 trades for a given market and address, or up to 10000 trades between a range specified in
         UNIX timetsamps by the "start" and "end" properties of your JSON input.
