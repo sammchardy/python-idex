@@ -1,6 +1,14 @@
 Changelog
 =========
 
+v0.3.3 - 2018-08-08
+^^^^^^^^^^^^^^^^^^^
+
+**Added**
+
+- override params for requests and aiohttp libraries
+
+
 v0.3.2 - 2018-06-27
 ^^^^^^^^^^^^^^^^^^^
 
