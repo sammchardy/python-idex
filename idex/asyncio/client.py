@@ -35,9 +35,11 @@ class AsyncClient(BaseClient):
         uri = self._create_uri(path)
 
         async with getattr(self.session, method)(uri, **kwargs) as response:
+            self._last_response = response
             return await self._handle_response(response)
 
-    async def _handle_response(self, response):
+    @staticmethod
+    async def _handle_response(response):
         """Internal helper for handling API responses from the Quoine server.
         Raises the appropriate exceptions when necessary; otherwise, returns the
         response.
@@ -96,27 +98,33 @@ class AsyncClient(BaseClient):
         return await self._post('returnOrderBook')
     get_order_books.__doc__ = Client.get_order_books.__doc__
 
-    async def get_order_book(self, market):
+    async def get_order_book(self, market, count=1):
         data = {
-            'market': market
+            'market': market,
+            'count': count
         }
         return await self._post('returnOrderBook', False, json=data)
     get_order_book.__doc__ = Client.get_order_book.__doc__
 
-    async def get_open_orders(self, market, address):
+    async def get_open_orders(self, market, address, count=10, cursor=None):
         data = {
             'market': market,
-            'address': address
+            'address': address,
+            'count': count
         }
+
+        if cursor:
+            data['cursor'] = cursor
+
         return await self._post('returnOpenOrders', False, json=data)
     get_open_orders.__doc__ = Client.get_open_orders.__doc__
 
     @require_address
-    async def get_my_open_orders(self, market):
-        return await self.get_open_orders(market, self._wallet_address)
+    async def get_my_open_orders(self, market, count=10, cursor=None):
+        return await self.get_open_orders(market, self._wallet_address, count, cursor)
     get_my_open_orders.__doc__ = Client.get_my_open_orders.__doc__
 
-    async def get_trade_history(self, market=None, address=None, start=None, end=None):
+    async def get_trade_history(self, market=None, address=None, start=None, end=None, count=10, sort='desc', cursor=None):
         data = {}
         if market:
             data['market'] = market
@@ -131,7 +139,7 @@ class AsyncClient(BaseClient):
     get_trade_history.__doc__ = Client.get_trade_history.__doc__
 
     @require_address
-    async def get_my_trade_history(self, market=None, start=None, end=None):
+    async def get_my_trade_history(self, market=None, start=None, end=None, count=10, sort='desc', cursor=None):
         return await self.get_trade_history(market, self._wallet_address, start, end)
     get_my_trade_history.__doc__ = Client.get_my_trade_history.__doc__
 

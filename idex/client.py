@@ -50,6 +50,7 @@ class BaseClient(object):
         self._start_nonce = None
         self._client_started = int(time.time() * 1000)
         self._requests_params = requests_params
+        self._last_response = None
 
         self.session = self._init_session()
 
@@ -164,7 +165,20 @@ class BaseClient(object):
         """
         return self._wallet_address
 
-    def _num_to_decimal(self, number):
+    def get_last_response(self):
+        """Get the last response object for inspection
+
+        .. code:: python
+
+            response = client.get_last_response()
+
+        :returns: response objects
+
+        """
+        return self._last_response
+
+    @staticmethod
+    def _num_to_decimal(number):
         if type(number) == float:
             number = Decimal(repr(number))
         elif type(number) == int:
@@ -174,7 +188,8 @@ class BaseClient(object):
 
         return number
 
-    def _parse_from_currency_quantity(self, currency_details, quantity):
+    @staticmethod
+    def _parse_from_currency_quantity(currency_details, quantity):
         if currency_details is None:
             return None
 
@@ -226,6 +241,7 @@ class Client(BaseClient):
         uri = self._create_uri(path)
 
         response = getattr(self.session, method)(uri, **kwargs)
+        self._last_response = response
         return self._handle_response(response)
 
     def _handle_response(self, response):
@@ -441,15 +457,19 @@ class Client(BaseClient):
 
         return self._post('returnOrderBook')
 
-    def get_order_book(self, market):
+    def get_order_book(self, market, count=1):
         """Get order book for selected market
 
-        Each market returned will have an asks and bids property containing all the sell orders and buy orders sorted by best price. Order objects will contain a price amount total and orderHash property but also a params property which will contain additional data about the order useful for filling or verifying it.
+        Each market returned will have an asks and bids property containing all the sell orders and buy orders
+        sorted by best price. Order objects will contain a price amount total and orderHash property but also
+        a params property which will contain additional data about the order useful for filling or verifying it.
 
         https://github.com/AuroraDAO/idex-api-docs#returnorderbook
 
         :param market: Name of market e.g. ETH_SAN
         :type market: string
+        :param count: Number of items to return
+        :type count: int
 
         .. code:: python
 
@@ -509,15 +529,18 @@ class Client(BaseClient):
         """
 
         data = {
-            'market': market
+            'market': market,
+            'count': count
         }
 
         return self._post('returnOrderBook', False, json=data)
 
-    def get_open_orders(self, market, address):
+    def get_open_orders(self, market, address, count=10, cursor=None):
         """Get the open orders for a given market and address
 
-        Output is similar to the output for get_order_book() except that orders are not sorted by type or price, but are rather displayed in the order of insertion. As is the case with get_order_book( there is a params property of the response value that contains details on the order which can help with verifying its authenticity.
+        Output is similar to the output for get_order_book() except that orders are not sorted by type or price, but
+        are rather displayed in the order of insertion. As is the case with get_order_book( there is a params property
+        of the response value that contains details on the order which can help with verifying its authenticity.
 
         https://github.com/AuroraDAO/idex-api-docs#returnopenorders
 
@@ -525,6 +548,10 @@ class Client(BaseClient):
         :type market: string
         :param address: Address to return open orders associated with
         :type address: address string
+        :param count: amount of results to return
+        :type count: int
+        :param cursor: For pagination. Provide the value returned in the idex-next-cursor HTTP header to request the next slice (or page)
+        :type cursor: str
 
         .. code:: python
 
@@ -587,21 +614,31 @@ class Client(BaseClient):
 
         data = {
             'market': market,
-            'address': address
+            'address': address,
+            'count': count
         }
+
+        if cursor:
+            data['cursor'] = cursor
 
         return self._post('returnOpenOrders', False, json=data)
 
     @require_address
-    def get_my_open_orders(self, market):
+    def get_my_open_orders(self, market, count=10, cursor=None):
         """Get your open orders for a given market
 
-        Output is similar to the output for get_order_book() except that orders are not sorted by type or price, but are rather displayed in the order of insertion. As is the case with get_order_book( there is a params property of the response value that contains details on the order which can help with verifying its authenticity.
+        Output is similar to the output for get_order_book() except that orders are not sorted by type or price, but
+        are rather displayed in the order of insertion. As is the case with get_order_book( there is a params property
+        of the response value that contains details on the order which can help with verifying its authenticity.
 
         https://github.com/AuroraDAO/idex-api-docs#returnopenorders
 
         :param market: Name of market e.g. ETH_SAN
         :type market: string
+        :param count: amount of results to return
+        :type count: int
+        :param cursor: For pagination. Provide the value returned in the idex-next-cursor HTTP header to request the next slice (or page)
+        :type cursor: str
 
         .. code:: python
 
@@ -660,10 +697,11 @@ class Client(BaseClient):
 
         """
 
-        return self.get_open_orders(market, self._wallet_address)
+        return self.get_open_orders(market, self._wallet_address, count, cursor)
 
-    def get_trade_history(self, market=None, address=None, start=None, end=None):
-        """Get the past 200 trades for a given market and address, or up to 10000 trades between a range specified in UNIX timetsamps by the "start" and "end" properties of your JSON input.
+    def get_trade_history(self, market=None, address=None, start=None, end=None, count=10, sort='desc', cursor=None):
+        """Get the past 200 trades for a given market and address, or up to 10000 trades between a range specified in
+        UNIX timetsamps by the "start" and "end" properties of your JSON input.
 
         https://github.com/AuroraDAO/idex-api-docs#returntradehistory
 
@@ -675,6 +713,12 @@ class Client(BaseClient):
         :type start: int
         :param end: optional - The inclusive UNIX timestamp marking the latest trade that will be returned in the response. (Default - current timestamp)
         :type end: int
+        :param count: optional - Number of records to be returned per request. Valid range: 1 .. 100
+        :type count: int
+        :param sort: optional - Possible values are asc (oldest first) and desc (newest first). Defaults to desc.
+        :type sort: string
+        :param cursor: optional - For pagination. Provide the value returned in the idex-next-cursor HTTP header to request the next slice (or page). This endpoint uses the tid property of a record for the cursor.
+        :type cursor: string
 
         .. code:: python
 
@@ -716,23 +760,34 @@ class Client(BaseClient):
             data['start'] = start
         if end:
             data['end'] = end
+        if count:
+            data['count'] = count
+        if sort:
+            data['sort'] = sort
+        if cursor:
+            data['cursor'] = cursor
 
         return self._post('returnTradeHistory', False, json=data)
 
     @require_address
-    def get_my_trade_history(self, market=None, start=None, end=None):
-        """Get your past 200 trades for a given market, or up to 10000 trades between a range specified in UNIX timetsamps by the "start" and "end" properties of your JSON input.
+    def get_my_trade_history(self, market=None, start=None, end=None, count=10, sort='desc', cursor=None):
+        """Get your past 200 trades for a given market, or up to 10000 trades between a range specified in UNIX
+        timestamps by the "start" and "end" properties of your JSON input.
 
         https://github.com/AuroraDAO/idex-api-docs#returntradehistory
 
         :param market: optional - will return an array of trade objects for the market, if omitted, will return an object of arrays of trade objects keyed by each market
         :type market: string
-        :param address: optional - If specified, return value will only include trades that involve the address as the maker or taker.
-        :type address: address string
         :param start: optional - The inclusive UNIX timestamp (seconds since epoch) marking the earliest trade that will be returned in the response, (Default - 0)
         :type start: int
         :param end: optional - The inclusive UNIX timestamp marking the latest trade that will be returned in the response. (Default - current timestamp)
         :type end: int
+        :param count: optional - Number of records to be returned per request. Valid range: 1 .. 100
+        :type count: int
+        :param sort: optional - Possible values are asc (oldest first) and desc (newest first). Defaults to desc.
+        :type sort: string
+        :param cursor: optional - For pagination. Provide the value returned in the idex-next-cursor HTTP header to request the next slice (or page). This endpoint uses the tid property of a record for the cursor.
+        :type cursor: string
 
         .. code:: python
 
@@ -765,7 +820,7 @@ class Client(BaseClient):
 
         """
 
-        return self.get_trade_history(market, self._wallet_address, start, end)
+        return self.get_trade_history(market, self._wallet_address, start, end, count, sort, cursor)
 
     def get_currencies(self):
         """Get token data indexed by symbol
