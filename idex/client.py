@@ -441,7 +441,7 @@ class Client(BaseClient):
 
         return self._post('returnOrderBook')
 
-    def get_order_book(self, market):
+    def get_order_book(self, market, count = 1):
         """Get order book for selected market
 
         Each market returned will have an asks and bids property containing all the sell orders and buy orders sorted by best price. Order objects will contain a price amount total and orderHash property but also a params property which will contain additional data about the order useful for filling or verifying it.
@@ -509,12 +509,13 @@ class Client(BaseClient):
         """
 
         data = {
-            'market': market
+            'market': market,
+            'count': count
         }
 
         return self._post('returnOrderBook', False, json=data)
 
-    def get_open_orders(self, market, address):
+    def get_open_orders(self, market, address, count = 10):
         """Get the open orders for a given market and address
 
         Output is similar to the output for get_order_book() except that orders are not sorted by type or price, but are rather displayed in the order of insertion. As is the case with get_order_book( there is a params property of the response value that contains details on the order which can help with verifying its authenticity.
@@ -525,6 +526,8 @@ class Client(BaseClient):
         :type market: string
         :param address: Address to return open orders associated with
         :type address: address string
+        :param count: amount of results to return
+        :type count: int
 
         .. code:: python
 
@@ -587,13 +590,14 @@ class Client(BaseClient):
 
         data = {
             'market': market,
-            'address': address
+            'address': address,
+            'count': count
         }
 
         return self._post('returnOpenOrders', False, json=data)
 
     @require_address
-    def get_my_open_orders(self, market):
+    def get_my_open_orders(self, market, count = 10):
         """Get your open orders for a given market
 
         Output is similar to the output for get_order_book() except that orders are not sorted by type or price, but are rather displayed in the order of insertion. As is the case with get_order_book( there is a params property of the response value that contains details on the order which can help with verifying its authenticity.
@@ -602,6 +606,8 @@ class Client(BaseClient):
 
         :param market: Name of market e.g. ETH_SAN
         :type market: string
+        :param count: amount of results to return
+        :type count: int
 
         .. code:: python
 
@@ -660,9 +666,9 @@ class Client(BaseClient):
 
         """
 
-        return self.get_open_orders(market, self._wallet_address)
+        return self.get_open_orders(market, self._wallet_address, count)
 
-    def get_trade_history(self, market=None, address=None, start=None, end=None):
+    def get_trade_history(self, market=None, address=None, start=None, end=None, count=10, sort='desc', cursor=None):
         """Get the past 200 trades for a given market and address, or up to 10000 trades between a range specified in UNIX timetsamps by the "start" and "end" properties of your JSON input.
 
         https://github.com/AuroraDAO/idex-api-docs#returntradehistory
@@ -675,6 +681,12 @@ class Client(BaseClient):
         :type start: int
         :param end: optional - The inclusive UNIX timestamp marking the latest trade that will be returned in the response. (Default - current timestamp)
         :type end: int
+        :param end: optional - Number of records to be returned per request. Valid range: 1 .. 100
+        :type count: int
+        :param sort: optional - Possible values are asc (oldest first) and desc (newest first). Defaults to desc.
+        :type sort: string
+        :param cursor: optional - For pagination. Provide the value returned in the idex-next-cursor HTTP header to request the next slice (or page). This endpoint uses the tid property of a record for the cursor.
+        :type cursor: string
 
         .. code:: python
 
@@ -716,6 +728,12 @@ class Client(BaseClient):
             data['start'] = start
         if end:
             data['end'] = end
+        if count:
+            data['count'] = count
+        if sort:
+            data['sort'] = sort
+        if cursor:
+            data['cursor'] = cursor
 
         return self._post('returnTradeHistory', False, json=data)
 
