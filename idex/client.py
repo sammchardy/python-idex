@@ -164,7 +164,8 @@ class BaseClient(object):
         """
         return self._wallet_address
 
-    def _num_to_decimal(self, number):
+    @staticmethod
+    def _num_to_decimal(number):
         if type(number) == float:
             number = Decimal(repr(number))
         elif type(number) == int:
@@ -174,7 +175,8 @@ class BaseClient(object):
 
         return number
 
-    def _parse_from_currency_quantity(self, currency_details, quantity):
+    @staticmethod
+    def _parse_from_currency_quantity(currency_details, quantity):
         if currency_details is None:
             return None
 
