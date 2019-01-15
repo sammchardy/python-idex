@@ -54,7 +54,8 @@ class BaseClient(object):
 
         self.session = self._init_session()
 
-    def _get_headers(self):
+    @staticmethod
+    def _get_headers():
         return {
             'Accept': 'application/json',
             'User-Agent': 'python-idex'
@@ -244,7 +245,8 @@ class Client(BaseClient):
         self._last_response = response
         return self._handle_response(response)
 
-    def _handle_response(self, response):
+    @staticmethod
+    def _handle_response(response):
         """Internal helper for handling API responses from the Quoine server.
         Raises the appropriate exceptions when necessary; otherwise, returns the
         response.
@@ -276,7 +278,8 @@ class Client(BaseClient):
     def get_tickers(self):
         """Get all market tickers
 
-        Please note: If any field is unavailable due to a lack of trade history or a lack of 24hr data, the field will be set to 'N/A'. percentChange, baseVolume, and quoteVolume will never be 'N/A' but may be 0.
+        Please note: If any field is unavailable due to a lack of trade history or a lack of 24hr data, the field
+        will be set to 'N/A'. percentChange, baseVolume, and quoteVolume will never be 'N/A' but may be 0.
 
         https://github.com/AuroraDAO/idex-api-docs#returnticker
 
@@ -321,7 +324,8 @@ class Client(BaseClient):
     def get_ticker(self, market):
         """Get ticker for selected market
 
-        Please note: If any field is unavailable due to a lack of trade history or a lack of 24hr data, the field will be set to 'N/A'. percentChange, baseVolume, and quoteVolume will never be 'N/A' but may be 0.
+        Please note: If any field is unavailable due to a lack of trade history or a lack of 24hr data, the field
+        will be set to 'N/A'. percentChange, baseVolume, and quoteVolume will never be 'N/A' but may be 0.
 
         https://github.com/AuroraDAO/idex-api-docs#returnticker
 
@@ -392,7 +396,9 @@ class Client(BaseClient):
     def get_order_books(self):
         """Get an object of the entire order book keyed by market
 
-        Each market returned will have an asks and bids property containing all the sell orders and buy orders sorted by best price. Order objects will contain a price amount total and orderHash property but also a params property which will contain additional data about the order useful for filling or verifying it.
+        Each market returned will have an asks and bids property containing all the sell orders and buy orders
+        sorted by best price. Order objects will contain a price amount total and orderHash property but also a
+        params property which will contain additional data about the order useful for filling or verifying it.
 
         https://github.com/AuroraDAO/idex-api-docs#returnorderbook
 
@@ -998,7 +1004,10 @@ class Client(BaseClient):
         return self.get_balances(self._wallet_address, complete)
 
     def get_transfers(self, address, start=None, end=None):
-        """Returns the deposit and withdrawal history for an address within a range, specified by the "start" and "end" properties of the JSON input, both of which must be UNIX timestamps. Withdrawals can be marked as "PENDING" if they are queued for dispatch, "PROCESSING" if the transaction has been dispatched, and "COMPLETE" if the transaction has been mined.
+        """Returns the deposit and withdrawal history for an address within a range, specified by the "start" and "end"
+        properties of the JSON input, both of which must be UNIX timestamps. Withdrawals can be marked as "PENDING" if
+        they are queued for dispatch, "PROCESSING" if the transaction has been dispatched, and "COMPLETE" if the
+        transaction has been mined.
 
         https://github.com/AuroraDAO/idex-api-docs#returndepositswithdrawals
 
@@ -1055,7 +1064,10 @@ class Client(BaseClient):
 
     @require_address
     def get_my_transfers(self, start=None, end=None):
-        """Returns your deposit and withdrawal history within a range, specified by the "start" and "end" properties of the JSON input, both of which must be UNIX timestamps. Withdrawals can be marked as "PENDING" if they are queued for dispatch, "PROCESSING" if the transaction has been dispatched, and "COMPLETE" if the transaction has been mined.
+        """Returns your deposit and withdrawal history within a range, specified by the "start" and "end" properties of
+        the JSON input, both of which must be UNIX timestamps. Withdrawals can be marked as "PENDING" if they are queued
+        for dispatch, "PROCESSING" if the transaction has been dispatched, and "COMPLETE" if the transaction
+        has been mined.
 
         https://github.com/AuroraDAO/idex-api-docs#returndepositswithdrawals
 
