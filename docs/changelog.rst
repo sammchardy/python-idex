@@ -1,6 +1,20 @@
 Changelog
 =========
 
+v0.3.4 - 2019-01-15
+^^^^^^^^^^^^^^^^^^^
+
+**Added**
+
+- new endpoint `get_order_status`
+- new params for `get_order_book`, `get_open_orders`, `get_my_open_orders`, `get_trade_history`
+
+
+**Fixed**
+
+- bug in _convert_to_currency_quantity for large values
+
+
 v0.3.3 - 2018-08-08
 ^^^^^^^^^^^^^^^^^^^
 
