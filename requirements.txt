@@ -1,5 +1,5 @@
 requests
 coincurve>=7.0.0
-py_ecc
+py_ecc==1.4.2
 pycryptodome>=3.5.1,<4
 rlp==0.4.7
