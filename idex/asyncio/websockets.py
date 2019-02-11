@@ -1,46 +1,68 @@
 import asyncio
 import json
 import logging
+from random import random
+from typing import List, Union, Dict, Callable, Awaitable
+from enum import Enum
+
+from shortid import ShortId
 import websockets as ws
+
+
+class SubscribeCategory(str, Enum):
+    account = 'subscribeToAccounts'
+    accounts = 'subscribeToAccounts'
+    market = 'subscribeToMarkets'
+    markets = 'subscribeToMarkets'
+    chain = 'subscribeToChains'
+    chains = 'subscribeToChains'
 
 
 class ReconnectingWebsocket:
 
-    STREAM_URL = 'wss://api-cluster.idex.market'
-    MAX_RECONNECTS = 3
+    STREAM_URL: str = 'wss://datastream.idex.market'
+    MAX_RECONNECTS: int = 5
+    MAX_RECONNECT_SECONDS: int = 60
     MIN_RECONNECT_WAIT = 0.1
-    TIMEOUT = 10
+    TIMEOUT: int = 10
+    PROTOCOL_VERSION: str = '1.0.0'
+    API_KEY: str = '17paIsICur8sA0OBqG6dH5G1rmrHNMwt4oNk4iX9'
 
     def __init__(self, loop, coro):
         self._loop = loop
         self._log = logging.getLogger(__name__)
         self._coro = coro
-        self._reconnects = 0
-        self._reconnect_wait = 0.1
+        self._reconnect_attempts: int = 0
         self._conn = None
-        self._socket = None
+        self._socket: ws.client.WebSocketClientProtocol = None
+        self._sid: str = None
+        self._handshaken: bool = False
 
         self._connect()
+
+    def set_sid(self, sid: str):
+        self._sid = sid
 
     def _connect(self):
         self._conn = asyncio.ensure_future(self._run())
 
     async def _run(self):
 
-        keep_waiting = True
+        keep_waiting: bool = True
 
-        async with ws.connect(self.STREAM_URL) as socket:
+        async with ws.connect(self.STREAM_URL, ssl=True) as socket:
             self._socket = socket
+
+            await self.handshake()
             try:
-                self._reconnect_wait = self.MIN_RECONNECT_WAIT
                 while keep_waiting:
                     try:
                         evt = await asyncio.wait_for(self._socket.recv(), timeout=self.TIMEOUT)
                     except asyncio.TimeoutError:
-                        print("no message in {} seconds".format(self.TIMEOUT))
+                        self._log.debug("no message in {} seconds".format(self.TIMEOUT))
                         await self._socket.ping()
                     except asyncio.CancelledError:
-                        print("cancelled error")
+                        self._log.debug("cancelled error")
                         await self._socket.ping()
                     else:
                         try:
@@ -60,28 +82,57 @@ class ReconnectingWebsocket:
 
     async def _reconnect(self):
         await self.cancel()
-        self._reconnects += 1
-        if self._reconnects < self.MAX_RECONNECTS:
+        self._reconnect_attempts += 1
+        if self._reconnect_attempts < self.MAX_RECONNECTS:
 
-            self._log.debug("websocket {} reconnecting {} reconnects left".format(
-                self._path,
-                self.MAX_RECONNECTS - self._reconnects)
-            )
-            await asyncio.sleep(self._reconnect_wait)
-            self._reconnect_wait *= 3
+            self._log.debug(f"websocket reconnecting {self.MAX_RECONNECTS - self._reconnect_attempts} attempts left")
+            reconnect_wait = self._get_reconnect_wait(self._reconnect_attempts)
+            await asyncio.sleep(reconnect_wait)
+            self._handshaken = False
             self._connect()
         else:
             # maybe raise an exception
+            self._log.error(f"websocket could not reconnect after {self._reconnect_attempts} attempts")
             pass
 
-    async def send_message(self, msg):
+    def _get_reconnect_wait(self, attempts: int) -> int:
+        expo = 2 ** attempts
+        return round(random() * min(self.MAX_RECONNECT_SECONDS, expo - 1) * 1000 + 1)
+
+    async def send_message(self, category: SubscribeCategory, msg):
         wait_count = 0
-        if not self._socket:
-            print("waiting for socket to init")
+        if not self._socket or not self._sid:
+            self._log.debug("waiting for socket to init and handshake")
             wait_count += 1
-            if wait_count < 3:
+            if wait_count < 5:
                 await asyncio.sleep(1)
-        await self._socket.send(msg)
+
+        # build the message
+        rid = ShortId()
+        socket_msg = json.dumps({
+            "rid": f"rid:{rid.generate()}",
+            "sid": self._sid,
+            "request": category,
+            "payload": json.dumps(msg)
+        })
+        await self._socket.send(socket_msg)
+
+    async def handshake(self):
+        if self._handshaken:
+            return
+
+        self._handshaken = True
+
+        handshake = json.dumps({
+            'request': 'handshake',
+            'payload': json.dumps({
+                # 'locale': 'en-au',
+                # 'type': 'client',
+                'version': self.PROTOCOL_VERSION,
+                'key': self.API_KEY
+            })
+        })
+        await self._socket.send(handshake)
 
     async def cancel(self):
         self._conn.cancel()
@@ -93,137 +144,94 @@ class IdexSocketManager:
         """Initialise the IdexSocketManager
 
         """
-        self._coros = {}
+        self._callback: Callable[[int], Awaitable[str]]
         self._conn = None
         self._loop = None
+        self._log = logging.getLogger(__name__)
 
     @classmethod
-    async def create(cls, loop):
+    async def create(cls, loop, callback: Callable[[int], Awaitable[str]]):
         self = IdexSocketManager()
         self._loop = loop
+        self._callback = callback
         self._conn = ReconnectingWebsocket(loop, self._recv)
-        print(self._conn)
         return self
 
-    async def _recv(self, msg):
+    async def _recv(self, msg: Dict):
+        # self._log.debug(f"mes recvd:{msg}")
         # get topic
-        if 'topic' in msg:
-            topic = msg['topic']
-            await self._coros[topic](msg['message'], topic)
+        if 'result' in msg:
+            if msg['result'] == 'success':
+                self._conn.set_sid(msg['sid'])
 
-    async def subscribe(self, market, coro):
-        """Subscribe to a market
+        elif 'event' in msg:
 
-        https://github.com/AuroraDAO/idex-api-docs#websocket-api
+            await self._callback(msg)
 
-        :param market: required
-        :type market: str
-        :param coro: callback coroutine to handle messages for this market
-        :type coro: async coroutine
+    async def subscribe(self, category: SubscribeCategory, topic: Union[str, List[str]], events: [List[str]]):
+        """Subscribe to a market or markets
 
+        https://github.com/AuroraDAO/datastream-client-js/blob/master/docs/index.md
+
+        :param category: required
+        :param topic: required
+        :param events: required
         :returns: None
 
         Message Formats
 
+        Sample response
+
         .. code-block:: python
 
             {
-                topic: 'ETH_DVIP',
-                message: {
-                type: 'orderBookAdd',
-                    data: {
-                        orderNumber: 2067,
-                        orderHash: '0xd9a438e69fbefaf63c327fb8a4dcafd9b1f0faaba428e16013a15328f08c02b2',
-                        price: '10',
-                        amount: '1',
-                        total: '10',
-                        type: 'sell',
-                        params: {
-                            tokenBuy: '0x0000000000000000000000000000000000000000',
-                            buyPrecision: 18,
-                            amountBuy: '10000000000000000000',
-                            tokenSell: '0xadc46ff5434910bd17b24ffb429e585223287d7f',
-                            sellPrecision: 2,
-                            amountSell: '100',
-                            expires: 190000,
-                            nonce: 2831,
-                            user: '0x034767f3c519f361c5ecf46ebfc08981c629d381'
+                'chain': 'eth',
+                'event': 'market_cancels',
+                'payload': '{               # a JSON encoded string
+                    "market":"ETH_IDXM",
+                    "cancels": [
+                        {
+                            "id":461889486,
+                            "market":
+                            "ETH_IDXM",
+                            "orderHash":"0xb0ddfd9e919493aaec790da1c089c846396fca5ac4592a340cbd032f65d1bde6",
+                            "createdAt":"2019-02-11T09:27:57.000Z"
                         }
-                    }
-                }
+                    ]
+                }',
+                'sid': 'csi:76XcGEza40XPB',
+                'eid': 'evt:GTaYL4sEcp5fY',
+                'seq': 98
             }
 
-            {
-                topic: 'ETH_DVIP',
-                message: {
-                    type: 'orderBookRemove',
-                    data: {
-                        orderHash: '0xd9a438e69fbefaf63c327fb8a4dcafd9b1f0faaba428e16013a15328f08c02b2'
-                    }
-                }
-            }
-
-            {
-                topic: 'ETH_DVIP',
-                message: {
-                    type: 'orderBookModify',
-                    data: {
-                        orderNumber: 2066,
-                        orderHash: '0x5b112c1c7089312cd92f5a701b7a4490ae2bde7054f6fd8e5790934cefd49dd1',
-                        price: '9',
-                        amount: '0.5',
-                        total: '4.5',
-                        type: 'sell',
-                        params: {
-                            tokenBuy: '0x0000000000000000000000000000000000000000',
-                            buyPrecision: 18,
-                            amountBuy: '9000000000000000000',
-                            amountBuyRemaining: '4500000000000000000',
-                            tokenSell: '0xadc46ff5434910bd17b24ffb429e585223287d7f',
-                            sellPrecision: 2,
-                            amountSell: '100',
-                            amountSellRemaining: '50',
-                            expires: 190000,
-                            nonce: 2829,
-                            user: '0x034767f3c519f361c5ecf46ebfc08981c629d381'
-                        }
-                    }
-                }
-            }
-
-            {
-                topic: 'ETH_DVIP',
-                message: {
-                    type: 'newTrade',
-                    data: {
-                        date: '2017-10-12 23:36:32',
-                        amount: '4.5',
-                        type: 'buy',
-                        total: '0.5',
-                        price: '9',
-                        orderHash: '0x5b112c1c7089312cd92f5a701b7a4490ae2bde7054f6fd8e5790934cefd49dd1',
-                        uuid: '2de5db40-afa6-11e7-9b58-b5b6bfc20bff'
-                    }
-                }
-            }
 
         """
-        if market not in self._coros:
-            self._coros[market] = coro
-            print(self._conn)
-            await self._conn.send_message(json.dumps({"subscribe": market}))
 
-    async def unsubscribe(self, market):
+        req_msg = {
+            'action': 'subscribe',
+            'topics': topic,
+            'events': events
+        }
+
+        await self._conn.send_message(category, req_msg)
+
+    async def unsubscribe(self, category: SubscribeCategory, topic: Union[str, List[str]], events: [List[str]]):
         """Unsubscribe from a market
 
-        https://github.com/AuroraDAO/idex-api-docs#websocket-api
+        https://github.com/AuroraDAO/datastream-client-js/blob/master/docs/index.md
 
-        :param market: required
-        :type market: str
+        :param category: required
+        :param topic: required
+        :param events: required
 
         :returns: None
 
         """
-        if market in self._coros:
-            del self._coros[market]
-            await self._conn.send_message(json.dumps({"unsubscribe": market}))
+
+        req_msg = {
+            'action': 'unsubscribe',
+            'topics': topic,
+            'events': events
+        }
+
+        await self._conn.send_message(category, req_msg)
