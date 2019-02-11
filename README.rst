@@ -79,7 +79,7 @@ Async Examples for Python 3.5+
 
 .. code:: python
 
-    from idex.asyncio import AsyncClient, IdexSocketManager
+    from idex.asyncio import AsyncClient, IdexSocketManager, SubscribeCategory
 
     loop = None
 
@@ -104,15 +104,20 @@ Async Examples for Python 3.5+
         # create a limit order
         order = await client.create_order('SAN', 'ETH', '0.001', '10000')
 
-        # Initialise the socket manager
-        ism = await IdexSocketManager.create(loop)
-
         # Coroutine to receive messages
-        async def handle_evt(msg, topic):
-            print("topic:{} type:{}".format(topic, msg['type']))
+        async def handle_evt(msg):
+            print(f"event:{msg['event']} payload:{msg['payload']}")
+            # do something with this event
 
-        # Subscribe to updates for the ETH_NPXS market
-        await ism.subscribe('ETH_NPXS', handle_evt)
+        # Initialise the socket manager with the callback funciton
+        ism = await IdexSocketManager.create(loop, handle_evt)
+
+        # Subscribe to updates for the ETH_AURA and ETH_IDXM market for cancels, orders and trades
+        await ism.subscribe(
+            SubscribeCategory.markets,
+            ['ETH_AURA', 'ETH_IDXM'],
+            ['market_cancels', 'market_orders', 'market_trades']
+        )
 
         # keep the script running so we can retrieve websocket events
         while True:

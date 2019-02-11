@@ -44,7 +44,7 @@ def install_requires():
 
     requires = ['requests', 'coincurve>=7.0.0', 'pycryptodome>=3.5.1,<4', 'rlp==0.4.7']
     if sys.version_info > (3, 3):
-        requires.extend(['py_ecc', 'websockets>=4.0.0', 'aiohttp>=2.3.0'])
+        requires.extend(['py_ecc', 'websockets>=4.0.0', 'aiohttp>=2.3.0', 'shortid>=0.1.2'])
     else:
         requires.extend(['py_ecc==1.4.2'])
     print("installing:{}".format(requires))

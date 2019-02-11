@@ -19,22 +19,27 @@ Example
 
 .. code::python
 
-    from idex.asyncio import IdexSocketManager
+    from idex.asyncio import IdexSocketManager, SubscribeCategory
 
     loop = None
 
     async def main():
         global loop
 
-        # Initialise the socket manager
-        ism = await IdexSocketManager.create(loop)
-
         # Coroutine to receive messages
-        async def handle_evt(msg, topic):
-            print("topic:{} type:{}".format(topic, msg['type']))
+        async def handle_evt(msg):
+            print(f"event:{msg['event']} payload:{msg['payload']}")
+            # do something with this event
 
-        # Subscribe to updates for the ETH_NPXS market
-        await ism.subscribe('ETH_NPXS', handle_evt)
+        # Initialise the socket manager with the callback funciton
+        ism = await IdexSocketManager.create(loop, handle_evt)
+
+        # Subscribe to updates for the ETH_AURA and ETH_IDXM market for cancels, orders and trades
+        await ism.subscribe(
+            SubscribeCategory.markets,
+            ['ETH_AURA', 'ETH_IDXM'],
+            ['market_cancels', 'market_orders', 'market_trades']
+        )
 
         # keep the script running so we can retrieve events
         while True:
