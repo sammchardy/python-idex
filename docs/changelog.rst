@@ -1,6 +1,13 @@
 Changelog
 =========
 
+v0.3.5 - 2019-02-11
+^^^^^^^^^^^^^^^^^^^
+
+**Updated**
+
+- websockets to use new datastream
+
 v0.3.4 - 2019-01-15
 ^^^^^^^^^^^^^^^^^^^
 
