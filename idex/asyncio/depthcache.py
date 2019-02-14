@@ -275,17 +275,26 @@ class DepthCacheManager(object):
         self._ism = None
         self._depth_cache: DepthCache = DepthCache(self._symbol)
         self._refresh_interval: int = refresh_interval
+        self._refresh_time: Optional[int] = None
         self._last_seq_id: Optional[int] = None
-        self._refresh_time = None
+
+        # set a time to refresh the depth cache
+        if self._refresh_interval:
+            self._refresh_time = int(time.time()) + self._refresh_interval
 
         self._base_token, self._quote_token = self._symbol.split('_')
         self._base_currency = await self._client.get_currency(self._base_token)
         self._quote_currency = await self._client.get_currency(self._quote_token)
 
+        self._set_refresh_time()
         await self._start_socket()
         await self._init_cache()
 
         return self
+
+    def _set_refresh_time(self):
+        if self._refresh_interval:
+            self._refresh_time = int(time.time()) + self._refresh_interval
 
     async def _init_cache(self):
         """Initialise the depth cache calling REST endpoint
@@ -313,8 +322,7 @@ class DepthCacheManager(object):
             self._depth_cache.add_ask(order)
 
         # set a time to refresh the depth cache
-        if self._refresh_interval:
-            self._refresh_time = int(time.time()) + self._refresh_interval
+        self._set_refresh_time()
 
     async def _start_socket(self):
         """Start the depth cache socket
