@@ -122,7 +122,7 @@ class DepthCache:
                     del self._orders[order.hash]
                 print(f"deleting bid level {order.price}")
                 del self._bids[order.price]
-            if self._orders[trade.order_hash].amount_dec == Decimal(0):
+            elif self._orders[trade.order_hash].amount_dec == Decimal(0):
                 # remove from bids orders
                 self._bids[order.price].order_hashs.remove(trade.order_hash)
                 # remove order completely
@@ -140,7 +140,7 @@ class DepthCache:
                     del self._orders[order.hash]
                 print(f"deleting ask level {order.price}")
                 del self._asks[order.price]
-            if self._orders[trade.order_hash].amount_dec == Decimal(0):
+            elif self._orders[trade.order_hash].amount_dec == Decimal(0):
                 # remove from bids orders
                 self._asks[order.price].order_hashs.remove(trade.order_hash)
                 # remove order completely
