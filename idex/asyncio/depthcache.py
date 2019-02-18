@@ -43,14 +43,20 @@ class TradeDetails:
 
 class DepthCacheLevel:
 
-    __slots__ = ['amount_dec', 'order_hashs']
+    __slots__ = ['amount_dec', 'order_hashes']
 
     def __init__(self):
         self.amount_dec: Decimal = Decimal(0)
-        self.order_hashs: List[str] = []
+        self.order_hashes: List[str] = []
+
+    def add_order(self, order:OrderDetails) -> None:
+        self.amount_dec += order.amount_dec
+        self.order_hashes.append(order.hash)
 
 
 class DepthCache:
+
+    __slots__ = ['symbol', '_bids', '_asks', '_orders', '_cast_prices', 'update_time']
 
     def __init__(self, symbol):
         """Initialise the DepthCache
@@ -63,6 +69,7 @@ class DepthCache:
         self._bids = {}
         self._asks = {}
         self._orders = {}
+        self._cast_prices = {}
         self.update_time = None
 
     def add_bid(self, order: OrderDetails):
@@ -77,8 +84,7 @@ class DepthCache:
         self._orders[order.hash] = order
         if order.price not in self._bids:
             self._bids[order.price] = DepthCacheLevel()
-        self._bids[order.price].amount_dec += order.amount_dec
-        self._bids[order.price].order_hashs.append(order.hash)
+        self._bids[order.price].add_order(order)
 
     def add_ask(self, order: OrderDetails):
         """Add an ask to the cache
@@ -92,8 +98,7 @@ class DepthCache:
         self._orders[order.hash] = order
         if order.price not in self._asks:
             self._asks[order.price] = DepthCacheLevel()
-        self._asks[order.price].amount_dec += order.amount_dec
-        self._asks[order.price].order_hashs.append(order.hash)
+        self._asks[order.price].add_order(order)
 
     def fill_order(self, trade: TradeDetails):
         """Remove an order from the books
@@ -118,16 +123,16 @@ class DepthCache:
             print(f"order has {self._orders[trade.order_hash].amount_dec} left")
             # clear 0 amounts
             if self._bids[order.price].amount_dec == Decimal(0):
-                for trade.order_hash in self._bids[order.price].order_hashs:
+                for trade.order_hash in self._bids[order.price].order_hashes:
                     print(f"order filled completely deleting")
-                    del self._orders[order.hash]
+                    self._remove_order_hash(order.hash)
                 print(f"deleting bid level {order.price}")
-                del self._bids[order.price]
+                self._remove_price_level('_bids', order.price)
             elif self._orders[trade.order_hash].amount_dec == Decimal(0):
                 # remove from bids orders
-                self._bids[order.price].order_hashs.remove(trade.order_hash)
+                self._bids[order.price].order_hashes.remove(trade.order_hash)
                 # remove order completely
-                del self._orders[trade.order_hash]
+                self._remove_order_hash(trade.order_hash)
 
         elif order.price in self._asks:
             self._asks[order.price].amount_dec -= trade.amount_dec
@@ -136,17 +141,17 @@ class DepthCache:
             print(f"order has {self._orders[trade.order_hash].amount_dec} left")
             # clear 0 amounts
             if self._asks[order.price].amount_dec == Decimal(0):
-                for trade.order_hash in self._asks[order.price].order_hashs:
+                for trade.order_hash in self._asks[order.price].order_hashes:
                     print(f"order filled completely deleting")
-                    del self._orders[order.hash]
+                    self._remove_order_hash(order.hash)
                 print(f"deleting ask level {order.price}")
-                del self._asks[order.price]
+                self._remove_price_level('_asks', order.price)
             elif self._orders[trade.order_hash].amount_dec == Decimal(0):
                 # remove from bids orders
-                self._asks[order.price].order_hashs.remove(trade.order_hash)
+                self._asks[order.price].order_hashes.remove(trade.order_hash)
                 # remove order completely
                 print(f"order filled completely deleting")
-                del self._orders[trade.order_hash]
+                self._remove_order_hash(trade.order_hash)
 
     def cancel_order(self, order_hash: str):
         """Remove an order from the books
@@ -158,17 +163,27 @@ class DepthCache:
         if order_hash not in self._orders:
             return
         order = self._orders[order_hash]
+        # check if cancelling from bids
         if order.price in self._bids:
-            self._bids[order.price].amount_dec -= order.amount_dec
-            # clear 0 amounts
-            if self._bids[order.price].amount_dec == Decimal(0):
-                del self._bids[order.price]
+            if len(self._bids[order.price].order_hashes) == 1:
+                self._remove_price_level('_bids', order.price)
+            else:
+                self._bids[order.price].amount_dec -= order.amount_dec
+
+        # else check if cancelling from asks
         elif order.price in self._asks:
-            self._asks[order.price].amount_dec -= order.amount_dec
-            # clear 0 amounts
-            if self._asks[order.price].amount_dec == Decimal(0):
-                del self._asks[order.price]
+            if len(self._asks[order.price].order_hashes) == 1:
+                self._remove_price_level('_asks', order.price)
+            else:
+                self._asks[order.price].amount_dec -= order.amount_dec
+        self._remove_order_hash(order_hash)
+
+    def _remove_order_hash(self, order_hash):
         del self._orders[order_hash]
+
+    def _remove_price_level(self, side, price):
+        del getattr(self, side)[price]
+        del self._cast_prices[price]
 
     def get_bids(self):
         """Get the current bids
@@ -236,11 +251,18 @@ class DepthCache:
         """
         return DepthCache.sort_depth(self._asks, reverse=False)
 
+    def _get_cast_price(self, price_str):
+        res = self._cast_prices.get(price_str)
+        if not res:
+            res = Decimal(price_str)
+            self._cast_prices[price_str] = res
+        return res
+
     @staticmethod
     def sort_depth(vals, reverse=False):
         """Sort bids or asks by price
         """
-        lst = [[float(price), float(level.amount_dec), level.order_hashs] for price, level in vals.items()]
+        lst = [[float(price), float(level.amount_dec), level.order_hashes] for price, level in vals.items()]
         lst = sorted(lst, key=itemgetter(0), reverse=reverse)
         return lst
 
