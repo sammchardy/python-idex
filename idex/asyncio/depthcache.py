@@ -28,11 +28,12 @@ class OrderDetails:
 
 class TradeDetails:
 
-    __slots__ = ['order_hash', 'tid', 'timestamp', 'price', 'price_dec', 'amount', 'amount_dec']
+    __slots__ = ['order_hash', 'tid', 'type', 'timestamp', 'price', 'price_dec', 'amount', 'amount_dec']
 
-    def __init__(self, order_hash: str, tid: int, timestamp: int, price: str, amount: str):
+    def __init__(self, order_hash: str, tid: int, type:str , timestamp: int, price: str, amount: str):
         self.order_hash: str = order_hash
         self.tid: int = tid
+        self.type: str = type
         self.timestamp: int = timestamp
         self.price: str = price
         self.price_dec: Decimal = Decimal(price)
