@@ -97,7 +97,7 @@ class ReconnectingWebsocket:
 
     def _get_reconnect_wait(self, attempts: int) -> int:
         expo = 2 ** attempts
-        return round(random() * min(self.MAX_RECONNECT_SECONDS, expo - 1) * 1000 + 1)
+        return round(random() * min(self.MAX_RECONNECT_SECONDS, expo - 1) + 1)
 
     async def send_message(self, category: SubscribeCategory, msg):
         wait_count = 0
