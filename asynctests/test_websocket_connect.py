@@ -11,7 +11,10 @@ def test_websocket_connect():
     loop = asyncio.get_event_loop()
 
     async def _run_test():
-        ism = await IdexSocketManager.create(loop)
+        async def handle_evt(msg):
+            pass
+
+        ism = await IdexSocketManager.create(loop=loop, callback=handle_evt)
 
     loop.run_until_complete(_run_test())
 
