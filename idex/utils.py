@@ -2,12 +2,24 @@
 Functions copied from pyethereum package to reduce dependencies
 """
 
+import sys
+
 # Imports
 from rlp.sedes import big_endian_int
 from Crypto.Hash import keccak
 from py_ecc.secp256k1 import ecdsa_raw_sign
 import coincurve
-from rlp.utils import str_to_bytes
+
+
+if sys.version_info.major == 2:
+    str_to_bytes = bytes_to_str = str
+else:
+    def str_to_bytes(value):
+        if isinstance(value, bytearray):
+            value = bytes(value)
+        if isinstance(value, bytes):
+            return value
+        return bytes(value, 'utf-8')
 
 
 # Functions - ecsign
