@@ -1,6 +1,13 @@
 Changelog
 =========
 
+v0.3.6 - 2019-06-29
+^^^^^^^^^^^^^^^^^^^
+
+**Updated**
+
+- update rlp dependency for python 3
+
 v0.3.5 - 2019-02-11
 ^^^^^^^^^^^^^^^^^^^
 
