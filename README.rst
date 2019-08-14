@@ -40,6 +40,14 @@ Features
 - Response exception handling
 - Websockets for Python 3.5+
 
+
+Upgrading
+---------
+
+If you've been using an older version of python-idex < 1.0.0 you will need to use an API Key for the REST client
+and websocket client. See examples below.
+
+
 Quick Start
 -----------
 
