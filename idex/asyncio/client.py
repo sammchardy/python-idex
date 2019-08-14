@@ -94,10 +94,6 @@ class AsyncClient(BaseClient):
         return await self._post('return24Volume')
     get_24hr_volume.__doc__ = Client.get_24hr_volume.__doc__
 
-    async def get_order_books(self):
-        return await self._post('returnOrderBook')
-    get_order_books.__doc__ = Client.get_order_books.__doc__
-
     async def get_order_book(self, market, count=1):
         data = {
             'market': market,
