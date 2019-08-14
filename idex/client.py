@@ -142,6 +142,9 @@ class BaseClient(object):
                 raise(IdexException("Private key in invalid format must satisfy 0x[0-9a-zA-Z]{64}"))
             self._private_key = private_key
 
+    def get_my_next_nonce(self):
+        raise NotImplementedError()
+
     def get_wallet_address(self):
         """Get the wallet address
 
@@ -255,7 +258,7 @@ class Client(BaseClient):
 
     @staticmethod
     def _handle_response(response):
-        """Internal helper for handling API responses from the Quoine server.
+        """Internal helper for handling API responses from the Idex server.
         Raises the appropriate exceptions when necessary; otherwise, returns the
         response.
         """

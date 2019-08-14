@@ -7,7 +7,8 @@ import pytest
 import requests_mock
 
 
-client = Client()
+api_key = 'api:jVXLd5h1bEYcKgZbQru2k'
+client = Client(api_key)
 
 currency_res = {
     "ETH": {

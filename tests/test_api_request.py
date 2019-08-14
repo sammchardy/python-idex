@@ -7,7 +7,8 @@ import pytest
 import requests_mock
 
 
-client = Client()
+api_key = 'api:jVXLd5h1bEYcKgZbQru2k'
+client = Client(api_key)
 
 
 def test_invalid_json():
@@ -27,5 +28,5 @@ def test_api_exception():
             json_obj = {
                 "error": "Signature verification failed"
             }
-            m.post('https://api.idex.market/returnOrderBook', json=json_obj, status_code=200)
-            client.get_order_books()
+            m.post('https://api.idex.market/return24Volume', json=json_obj, status_code=200)
+            client.get_24hr_volume()

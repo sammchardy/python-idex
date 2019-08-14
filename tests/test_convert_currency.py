@@ -9,7 +9,8 @@ import pytest
 import requests_mock
 
 
-client = Client()
+api_key = 'api:jVXLd5h1bEYcKgZbQru2k'
+client = Client(api_key)
 
 currencies_json = {
     "ETH": {
@@ -98,7 +99,7 @@ def test_convert_from_currency_not_found():
             m.post('https://api.idex.market/returnCurrencies', json=currencies_json, status_code=200)
 
             for e in not_found_examples:
-                q = client.parse_from_currency_quantity(e[0], e[1])
+                client.parse_from_currency_quantity(e[0], e[1])
 
 
 def test_convert_to_currency_no_decimals():
