@@ -8,6 +8,9 @@ from idex.asyncio import AsyncClient
 from idex.exceptions import IdexAPIException, IdexRequestException
 
 
+api_key = 'api:jVXLd5h1bEYcKgZbQru2k'
+
+
 def test_invalid_json():
     """Test Invalid response Exception"""
 
@@ -16,7 +19,7 @@ def test_invalid_json():
         m.post('https://api.idex.market/returnTicker', body='<head></html>')
 
         async def _run_test():
-            client = await AsyncClient.create()
+            client = await AsyncClient.create(api_key)
             with pytest.raises(IdexRequestException):
                 await client.get_tickers()
 
@@ -31,11 +34,11 @@ def test_api_exception():
         json_obj = {
             "error": "Signature verification failed"
         }
-        m.post('https://api.idex.market/returnOrderBook', payload=json_obj, status=200)
+        m.post('https://api.idex.market/return24Volume', payload=json_obj, status=200)
 
         async def _run_test():
-            client = await AsyncClient.create()
+            client = await AsyncClient.create(api_key)
             with pytest.raises(IdexAPIException):
-                await client.get_order_books()
+                await client.get_24hr_volume()
 
         loop.run_until_complete(_run_test())
