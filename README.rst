@@ -1,5 +1,5 @@
 =============================
-Welcome to python-idex v0.3.6
+Welcome to python-idex v1.0.0
 =============================
 
 .. image:: https://img.shields.io/pypi/v/python-idex.svg
@@ -55,23 +55,27 @@ Synchronous Examples
 
 .. code:: python
 
+    api_key = 'api:jVXLd5h1bEYcKgZbQru2k'
+    address = '<address_string>'
+    private_key = '<private_key_string>'
+
     from idex.client import Client
-    client = Client(address, private_key)
+    client = Client(api_key, address, private_key)
 
     # get currencies
     currencies = client.get_currencies()
 
     # get market depth
-    depth = client.get_order_book('ETH_SAN')
+    depth = client.get_order_book('ETH_SENT')
 
     # get your balances
     balances = client.get_my_balances()
 
     # get your open orders
-    orders = client.get_my_open_orders('ETH_SAN')
+    orders = client.get_my_open_orders('ETH_SENT')
 
     # create a limit order
-    order = client.create_order('SAN', 'ETH', '0.001', '10000')
+    order = client.create_order('SENT', 'ETH', '0.001', '10000')
 
 
 Async Examples for Python 3.5+
@@ -87,22 +91,22 @@ Async Examples for Python 3.5+
         global loop
 
         # Initialise the client
-        client = await AsyncClient()
+        client = await AsyncClient(api_key, address, private_key)
 
         # get currencies
         currencies = await client.get_currencies()
 
         # get market depth
-        depth = await client.get_order_book('ETH_SAN')
+        depth = await client.get_order_book('ETH_SENT')
 
         # get your balances
         balances = await client.get_my_balances()
 
         # get your open orders
-        orders = await client.get_my_open_orders('ETH_SAN')
+        orders = await client.get_my_open_orders('ETH_SENT')
 
         # create a limit order
-        order = await client.create_order('SAN', 'ETH', '0.001', '10000')
+        order = await client.create_order('SENT', 'ETH', '0.001', '10000')
 
         # Coroutine to receive messages
         async def handle_evt(msg):
@@ -110,12 +114,12 @@ Async Examples for Python 3.5+
             # do something with this event
 
         # Initialise the socket manager with the callback funciton
-        ism = await IdexSocketManager.create(loop, handle_evt)
+        ism = await IdexSocketManager.create(loop, handle_evt, api_key)
 
-        # Subscribe to updates for the ETH_AURA and ETH_IDXM market for cancels, orders and trades
+        # Subscribe to updates for the ETH_SENT, ETH_AURA and ETH_IDXM market for cancels, orders and trades
         await ism.subscribe(
             SubscribeCategory.markets,
-            ['ETH_AURA', 'ETH_IDXM'],
+            ['ETH_SENT', 'ETH_AURA', 'ETH_IDXM'],
             ['market_cancels', 'market_orders', 'market_trades']
         )
 

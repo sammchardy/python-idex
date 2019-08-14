@@ -1,6 +1,14 @@
 Changelog
 =========
 
+v1.0.0 - 2019-08-14
+^^^^^^^^^^^^^^^^^^^
+
+**Breaking Change**
+
+- added mandatory api_key parameter to Client, AsyncClient and IdexSocketManager
+- remove deprecated `get_order_books` function, use `get_order_book` with market param instead
+
 v0.3.6 - 2019-06-29
 ^^^^^^^^^^^^^^^^^^^
 
