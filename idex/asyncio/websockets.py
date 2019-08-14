@@ -28,7 +28,7 @@ class ReconnectingWebsocket:
     PROTOCOL_VERSION: str = '1.0.0'
     API_KEY: str = '17paIsICur8sA0OBqG6dH5G1rmrHNMwt4oNk4iX9'
 
-    def __init__(self, loop, coro):
+    def __init__(self, loop, coro, api_key=None):
         self._loop = loop
         self._log = logging.getLogger(__name__)
         self._coro = coro
@@ -37,6 +37,7 @@ class ReconnectingWebsocket:
         self._socket: ws.client.WebSocketClientProtocol = None
         self._sid: str = None
         self._handshaken: bool = False
+        self._api_key = api_key or self.API_KEY
 
         self._connect()
 
@@ -129,7 +130,7 @@ class ReconnectingWebsocket:
                 # 'locale': 'en-au',
                 # 'type': 'client',
                 'version': self.PROTOCOL_VERSION,
-                'key': self.API_KEY
+                'key': self._api_key
             })
         })
         await self._socket.send(handshake)
@@ -150,11 +151,13 @@ class IdexSocketManager:
         self._log = logging.getLogger(__name__)
 
     @classmethod
-    async def create(cls, loop, callback: Callable[[int], Awaitable[str]]):
+    async def create(cls, loop, callback: Callable[[int], Awaitable[str]], api_key=None):
         self = IdexSocketManager()
         self._loop = loop
         self._callback = callback
-        self._conn = ReconnectingWebsocket(loop, self._recv)
+        if not api_key:
+            self._log.warning('API Keys are mandatory for data streams from 23rd August 2019')
+        self._conn = ReconnectingWebsocket(loop, self._recv, api_key=api_key)
         return self
 
     async def _recv(self, msg: Dict):
