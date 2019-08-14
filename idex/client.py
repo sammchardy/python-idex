@@ -22,28 +22,15 @@ class BaseClient(object):
     _contract_address = None
     _currency_addresses = {}
 
-    def __init__(self, address=None, private_key=None, requests_params=None):
+    def __init__(self, api_key=None, requests_params=None):
         """IDEX API Client constructor
-
-        Takes an optional wallet address parameter which enables helper functions
 
         https://github.com/AuroraDAO/idex-api-docs
 
-        :param address: optional - Wallet address
-        :type address: address string
-        :param private_key: optional - The private key for the address
-        :type private_key: string
+        :param api_key: optional - Wallet address
+        :type api_key: address string
         :param requests_params: optional - Dictionary of requests params to use for all calls
         :type requests_params: dict.
-
-        .. code:: python
-
-            client = Client()
-
-            # with wallet address and private key
-            address = '0x925cfc20de3fcbdba2d6e7c75dbb1d0a3f93b8a3'
-            private_key = 'priv_key...'
-            client = Client(address, private_key)
 
         """
 
@@ -51,14 +38,15 @@ class BaseClient(object):
         self._client_started = int(time.time() * 1000)
         self._requests_params = requests_params
         self._last_response = None
+        self._api_key = api_key
 
         self.session = self._init_session()
 
-    @staticmethod
-    def _get_headers():
+    def _get_headers(self):
         return {
             'Accept': 'application/json',
-            'User-Agent': 'python-idex'
+            'User-Agent': 'python-idex',
+            'API-Key': self._api_key
         }
 
     def _get_nonce(self):
@@ -223,9 +211,29 @@ class BaseClient(object):
 
 class Client(BaseClient):
 
-    def __init__(self, address=None, private_key=None):
+    def __init__(self, api_key, address=None, private_key=None):
+        """
 
-        super(Client, self).__init__(address, private_key)
+        :param api_key:
+        :type api_key: string
+        :param address: optional - Wallet address
+        :type address: address string
+        :param private_key: optional - The private key for the address
+        :type private_key: string
+
+        .. code:: python
+
+            api_key = 'kjdfiaadmad'
+            client = Client(api_key=api_key)
+
+            # with wallet address and private key
+            address = '0x925cfc20de3fcbdba2d6e7c75dbb1d0a3f93b8a3'
+            private_key = 'priv_key...'
+            client = Client(api_key=api_key, address=address, private_key=private_key)
+
+        """
+
+        super(Client, self).__init__(api_key)
 
         if address:
             self.set_wallet_address(address, private_key)

@@ -10,9 +10,9 @@ from idex.decorators import require_address, require_private_key
 class AsyncClient(BaseClient):
 
     @classmethod
-    async def create(cls, address=None, private_key=None):
+    async def create(cls, api_key, address=None, private_key=None):
 
-        self = AsyncClient(address, private_key)
+        self = AsyncClient(api_key)
 
         if address:
             await self.set_wallet_address(address, private_key)
