@@ -9,7 +9,7 @@ Welcome to python-idex v3.0.0
     :target: https://pypi.python.org/pypi/python-idex
 
 .. image:: https://img.shields.io/travis/sammchardy/python-idex.svg
-    :target: https://travis-ci.org/sammchardy/python-idex
+    :target: https://travis-ci.com/sammchardy/python-idex
 
 .. image:: https://img.shields.io/coveralls/sammchardy/python-idex.svg
     :target: https://coveralls.io/github/sammchardy/python-idex
