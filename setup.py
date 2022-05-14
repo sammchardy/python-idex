@@ -49,7 +49,7 @@ setup(
     author="Sam McHardy",
     license="MIT",
     author_email="",
-    install_requires=["aiohttp", "eth-account", "requests", "web3"],
+    install_requires=["aiohttp", "requests", "web3"],
     keywords="idex exchange rest api ethereum eth eos",
     classifiers=[
         "Intended Audience :: Developers",

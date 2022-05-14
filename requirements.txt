@@ -1,4 +1,3 @@
 aiohttp
-eth-account
 requests
 web3
