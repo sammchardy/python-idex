@@ -12,10 +12,10 @@ Install with ``pip``:
     pip install python-idex
 
 
-Register on IDEX
-----------------
+Register on IDEX v3
+-------------------
 
-Firstly register an account with `IDEX <https://exchange.idex.io/r/O5O9RA3B>`_.
+Firstly register an account with `IDEX v3 <https://exchange.idex.io/r/O5O9RA3B>`_.
 
 Make sure you save your private key as you will need it to sign trades.
 

@@ -55,8 +55,8 @@ class BaseClient:
         self,
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
-        private_key: str = None,
-        requests_params=None,
+        private_key: Optional[str] = None,
+        requests_params: Optional[Dict] = None,
         sandbox: bool = False,
     ):
         """IDEX API Client constructor
@@ -72,7 +72,7 @@ class BaseClient:
 
         self.api_url = self.SANDBOX_URL if sandbox else self.API_URL
         self.contracts = self.SANDBOX_CONTRACTS if sandbox else self.CONTRACTS
-        self.sandbox = sandbox
+        self.sandbox: bool = sandbox
         self._start_nonce = None
         self._client_started = int(time.time() * 1000)
         self._requests_params = requests_params
@@ -112,6 +112,7 @@ class BaseClient:
         else:
             data_str = json.dumps(data, separators=(",", ":"))
 
+        assert self._api_secret, 'Must initialise client with api_secret to use private endpoints'
         return hmac.new(
             self._api_secret.encode("utf-8"),
             data_str.encode("utf-8"),
@@ -136,6 +137,7 @@ class BaseClient:
         return params
 
     def _create_wallet_signature(self, signature_parameters: SigParamType) -> str:
+        assert self._wallet, 'Must provide private_key for endpoints that interact with a wallet'
         fields, values = zip(*signature_parameters)
         signature_parameters_hash: bytes = Web3.solidityKeccak(fields, values)
         signable_message: SignableMessage = encode_defunct(hexstr=signature_parameters_hash.hex())
@@ -200,8 +202,8 @@ class Client(BaseClient):
         self,
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
-        private_key=None,
-        requests_params=None,
+        private_key: Optional[str] = None,
+        requests_params: Optional[Dict] = None,
         sandbox: bool = False,
     ):
         """
@@ -1511,7 +1513,7 @@ class AsyncClient(BaseClient):
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
         private_key: Optional[str] = None,
-        requests_params=None,
+        requests_params: Optional[Dict] = None,
         sandbox: bool = False,
     ):
 

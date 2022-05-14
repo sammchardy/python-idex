@@ -48,7 +48,7 @@ Using an API key increases `rate limits <https://api-docs-v3.idex.io/#rate-limit
 Quick Start
 -----------
 
-Register an account with `IDEX <https://exchange.idex.io/r/O5O9RA3B>`_.
+Register an account with `IDEX v3 <https://exchange.idex.io/r/O5O9RA3B>`_.
 
 .. code:: bash
 
