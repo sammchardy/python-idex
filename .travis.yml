@@ -1,5 +1,3 @@
-dist: xenial
-
 language: python
 
 python:
@@ -7,15 +5,14 @@ python:
   - "3.7"
   - "3.8"
   - "3.9"
-  - "3.10"
+  - "nightly"
 
 install:
   - pip install -r test-requirements.txt
   - pip install -r requirements.txt
-  - pip install tox-travis
 
 script:
-  - tox
+  - pytest -v tests/  --doctest-modules --cov idex --cov-report term-missing
 
 after_success:
   - coveralls

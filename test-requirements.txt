@@ -3,6 +3,6 @@ coverage
 flake8
 pytest
 pytest-cov
-python-coveralls
+coveralls
 requests-mock
 tox
