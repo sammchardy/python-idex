@@ -9,27 +9,24 @@ Example
 
 .. code::python
 
-    from idex.asyncio import AsyncClient
+    from idex import AsyncClient
 
-    address = '0x...'
+    api_key = '<api_key>'
+    api_secret = '<api_secret>'
     private_key = '0x...'
-    loop = None
 
     async def main():
-        global loop
 
         # initialise the client
-        client = await AsyncClient.create(address, private_key)
+        client = await AsyncClient.create(api_key, api_secret, private_key)
 
+        exchange_info = await client.get_exchange()
 
-        volume = await client.get_24hr_volume()
-
-        orders = await client.get_open_orders('ETH_NPXS', address))
+        open_orders = await client.get_open_orders('ETH-USDC'))
 
         print(json.dumps(await client.get_order_books(), indent=2))
 
 
     if __name__ == "__main__":
-        # get a loop and switch from synchronous to async
         loop = asyncio.get_event_loop()
         loop.run_until_complete(main())

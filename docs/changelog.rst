@@ -1,6 +1,14 @@
 Changelog
 =========
 
+v3.0.0 - 2022-05-14
+^^^^^^^^^^^^^^^^^^^
+
+**Breaking Change**
+
+- Upgraded to support IDEX v3
+- Websockets removed for now
+
 v1.0.0 - 2019-08-14
 ^^^^^^^^^^^^^^^^^^^
 

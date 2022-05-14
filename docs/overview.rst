@@ -15,50 +15,40 @@ Install with ``pip``:
 Register on IDEX
 ----------------
 
-Firstly register an account with `IDEX <https://idex.market/>`_.
+Firstly register an account with `IDEX <https://exchange.idex.io/r/O5O9RA3B>`_.
 
 Make sure you save your private key as you will need it to sign trades.
 
-Wallet Address
---------------
+API Credentials
+---------------
 
-Your Wallet Address can be found in the top right under the account menu.
+Generate an API key and secret using the `Manage User <https://exchange.idex.io/user/manage>`_.
 
-This is used to query the exchange for your balances, orders and trade history etc.
-
-Some calls will throw an IdexException unless the wallet address and private key have been set.
+Specify the permissions you require and remember to save both the key and the secret.
 
 
 Private Key
 -----------
 
-To perform and trading you will need both your wallet address and private key.
+To perform and trading you will need both your api credentials and private key.
 
 Note: Your private key is in the form '0x4efd9306gf134f9ee432d7415fb385029db50e7bce1682b2442beba24cf0a91f'
 
 Initialise the client
 ---------------------
 
-Pass your Wallet Address and Private Key
+Pass your Private Key
 
 .. code:: python
 
-    from idex.client import Client
-    client = Client()
+    from idex import Client
+    client = Client(api_key, api_secret)
 
-    # add your wallet address later
-    client.set_wallet_address(address)
+    # add your wallet private key later
+    client.set_wallet(private_key)
 
-    # change or add wallet address and private key
-    client.set_wallet_address(address, private_key)
-
-    # initialise the client with wallet address and private key
-    client = Client(address, private_key)
-
-API Rate Limit
---------------
-
-Unknown
+    # initialise the client with private key
+    client = Client(api_key, api_secret, private_key)
 
 Requests Settings
 -----------------

@@ -9,14 +9,15 @@ Contents
    :maxdepth: 2
 
    overview
-   currencies
+   assets
    market
    exchange
    orders
    account
+   user
    withdraw
+   liquidity
    async
-   websockets
    exceptions
    changelog
 

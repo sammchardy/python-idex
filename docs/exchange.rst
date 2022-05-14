@@ -2,6 +2,6 @@ Exchange Endpoints
 ==================
 
 .. autoclass:: idex.client.Client
-    :members: get_contract_address
+    :members: ping, get_server_time, get_exchange
     :noindex:
     :member-order: bysource

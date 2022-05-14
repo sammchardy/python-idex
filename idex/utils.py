@@ -1,64 +1,54 @@
-"""
-Functions copied from pyethereum package to reduce dependencies
-"""
-
-import sys
-
-# Imports
-from rlp.sedes import big_endian_int
-from Crypto.Hash import keccak
-from py_ecc.secp256k1 import ecdsa_raw_sign
-import coincurve
+import uuid
+from decimal import Decimal
+from typing import Union
 
 
-if sys.version_info.major == 2:
-    str_to_bytes = bytes_to_str = str
-else:
-    def str_to_bytes(value):
-        if isinstance(value, bytearray):
-            value = bytes(value)
-        if isinstance(value, bytes):
-            return value
-        return bytes(value, 'utf-8')
+def get_nonce() -> uuid.UUID:
+    return uuid.uuid1()
 
 
-# Functions - ecsign
-def big_endian_to_int(x):
-    return big_endian_int.deserialize(str_to_bytes(x).lstrip(b'\x00'))
+def format_quantity(quantity: Union[float, Decimal]):
+    return f"{quantity:0.08f}"
 
 
-def safe_ord(value):
-    if isinstance(value, int):
-        return value
-    else:
-        return ord(value)
+def num_to_decimal(number):
+    if type(number) == float:
+        number = Decimal(repr(number))
+    elif type(number) == int:
+        number = Decimal(number)
+    elif type(number) == str:
+        number = Decimal(number)
+
+    return number
 
 
-def ecsign(rawhash, key):
-    if coincurve and hasattr(coincurve, 'PrivateKey'):
-        pk = coincurve.PrivateKey(key)
-        signature = pk.sign_recoverable(rawhash, hasher=None)
-        v = safe_ord(signature[64]) + 27
-        r = big_endian_to_int(signature[0:32])
-        s = big_endian_to_int(signature[32:64])
-    else:
-        v, r, s = ecdsa_raw_sign(rawhash, key)
-    return v, r, s
+def parse_from_token_quantity(currency_details, quantity):
+    if currency_details is None:
+        return None
+
+    f_q = Decimal(quantity)
+
+    if "assetDecimals" not in currency_details:
+        return f_q
+
+    # divide by currency_details['decimals']
+    d_str = "1{}".format(("0" * currency_details["assetDecimals"]))
+    res = f_q / Decimal(d_str)
+
+    return res
 
 
-# Functions - sha3
-def sha3(x):
-    return keccak.new(digest_bits=256, data=x).digest()
+def convert_to_token_quantity(currency_details, quantity):
+    if currency_details is None:
+        return None
 
+    f_q = num_to_decimal(quantity)
 
-# Functions - encode_int32
-def int_to_big_endian(x):
-    return big_endian_int.serialize(x)
+    if "assetDecimals" not in currency_details:
+        return f_q
 
+    # multiply by currency_details['assetDecimals']
+    m_str = "1{}".format(("0" * currency_details["assetDecimals"]))
+    res = (f_q * Decimal(m_str)).to_integral_exact()
 
-def zpad(x, l):
-    return b'\x00' * max(0, l - len(x)) + x
-
-
-def encode_int32(v):
-    return zpad(int_to_big_endian(v), 32)
+    return "{:d}".format(int(res))

@@ -1,28 +1,64 @@
-# coding=utf-8
-
-import binascii
-import codecs
-import re
-import requests
-import time
-
+import asyncio
 from decimal import Decimal
+import hashlib
+import hmac
+import json
+import time
+from urllib.parse import urlencode
+import uuid
+from typing import Optional, Dict, List, Union, Any
 
-from .exceptions import IdexException, IdexAPIException, IdexRequestException, IdexCurrencyNotFoundException
-from .decorators import require_address, require_private_key
-from .utils import sha3, ecsign, encode_int32
+import aiohttp
+from eth_account import Account
+from eth_account.messages import SignableMessage, encode_defunct
+import requests
+from eth_account.signers.local import LocalAccount
+from web3 import Web3
+
+from .enums import (
+    CandleInterval,
+    OrderbookLevel,
+    SignType,
+    OrderType,
+    OrderSide,
+    OrderTimeInForce,
+    OrderSelfTradePrevention,
+)
+from .exceptions import (
+    IdexAPIException,
+    IdexRequestException,
+    IdexCurrencyNotFoundException,
+)
+from .signing import path_signature_parameters, SigParamType
+from .utils import (
+    get_nonce,
+    format_quantity,
+    convert_to_token_quantity,
+)
 
 
-class BaseClient(object):
+class BaseClient:
 
-    API_URL = 'https://api.idex.market'
+    API_URL = "https://api-matic.idex.io"
+    SANDBOX_URL = "https://api-sandbox-matic.idex.io"
 
-    _wallet_address = None
-    _private_key = None
-    _contract_address = None
-    _currency_addresses = {}
+    API_VERSION = "v1"
 
-    def __init__(self, api_key=None, requests_params=None):
+    CONTRACTS = {
+        "exchange": "0x3253A7e75539EdaEb1Db608ce6Ef9AA1ac9126B6",
+        "custody": "0x3bcC4EcA0a40358558ca8D1bcd2d1dBdE63eB468",
+    }
+
+    SANDBOX_CONTRACTS = {"exchange": "0x1C74657A9C53D709d93eBD7831F7adB14714CB40"}
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+        private_key: str = None,
+        requests_params=None,
+        sandbox: bool = False,
+    ):
         """IDEX API Client constructor
 
         https://github.com/AuroraDAO/idex-api-docs
@@ -34,222 +70,172 @@ class BaseClient(object):
 
         """
 
+        self.api_url = self.SANDBOX_URL if sandbox else self.API_URL
+        self.contracts = self.SANDBOX_CONTRACTS if sandbox else self.CONTRACTS
+        self.sandbox = sandbox
         self._start_nonce = None
         self._client_started = int(time.time() * 1000)
         self._requests_params = requests_params
         self._last_response = None
-        self._api_key = api_key
+        self._api_key: Optional[str] = api_key
+        self._api_secret: Optional[str] = api_secret
+        self._wallet_private_key: Optional[str] = private_key
+        self._wallet: Optional[LocalAccount] = None
+        self._wallet_address: Optional[str] = None
+        self._asset_addresses = {}
 
         self.session = self._init_session()
+        self.init_wallet(private_key)
 
     def _get_headers(self):
-        return {
-            'Accept': 'application/json',
-            'User-Agent': 'python-idex',
-            'API-Key': self._api_key
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "python-idex",
         }
+        if self._api_key:
+            headers["IDEX-API-Key"] = self._api_key
+        return headers
 
-    def _get_nonce(self):
-        """Get a unique nonce for request
+    @staticmethod
+    def _get_nonce() -> uuid.UUID:
+        """Get a unique nonce for request"""
+        return get_nonce()
 
-        """
-        return self._start_nonce + int(time.time() * 1000) - self._client_started
+    @property
+    def wallet_address(self) -> str:
+        return self._wallet.address if self._wallet else ""
 
-    def _generate_signature(self, data):
-        """Generate v, r, s values from payload
+    def _sign_params(self, method: str, params: Optional[Dict] = None) -> str:
+        data: Dict = params or {}
+        if method == "get":
+            data_str = urlencode(data)
+        else:
+            data_str = json.dumps(data, separators=(",", ":"))
 
-        """
+        return hmac.new(
+            self._api_secret.encode("utf-8"),
+            data_str.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
 
-        # pack parameters based on type
-        sig_str = b''
-        for d in data:
-            val = d[1]
-            if d[2] == 'address':
-                # remove 0x prefix and convert to bytes
-                val = val[2:].encode('utf-8')
-            elif d[2] == 'uint256':
-                # encode, pad and convert to bytes
-                val = binascii.b2a_hex(encode_int32(int(d[1])))
-            sig_str += val
+    def init_wallet(self, private_key: str = None):
+        if private_key:
+            self._wallet_private_key = private_key
+        if self._wallet_private_key:
+            self._wallet = Account.from_key(private_key)
 
-        # hash the packed string
-        rawhash = sha3(codecs.decode(sig_str, 'hex_codec'))
+    def _wallet_sign(self, path: str, method: str, data: Dict) -> Dict:
+        signature_parameters = path_signature_parameters(
+            path, method, self.wallet_address, self.sandbox, data
+        )
+        params = {
+            "parameters": data,
+            "signature": self._create_wallet_signature(signature_parameters),
+        }
+        params["parameters"]["nonce"] = str(params["parameters"]["nonce"])
+        return params
 
-        # salt the hashed packed string
-        salted = sha3(u"\x19Ethereum Signed Message:\n32".encode('utf-8') + rawhash)
+    def _create_wallet_signature(self, signature_parameters: SigParamType) -> str:
+        fields, values = zip(*signature_parameters)
+        signature_parameters_hash: bytes = Web3.solidityKeccak(fields, values)
+        signable_message: SignableMessage = encode_defunct(hexstr=signature_parameters_hash.hex())
+        signed_message = self._wallet.sign_message(signable_message)  # what type ?
+        return signed_message.signature.hex()
 
-        # sign string
-        v, r, s = ecsign(salted, codecs.decode(self._private_key[2:], 'hex_codec'))
+    def _create_uri(self, path: str):
+        return "{}/{}/{}".format(self.api_url, self.API_VERSION, path)
 
-        # pad r and s with 0 to 64 places
-        return {'v': v, 'r': "{0:#0{1}x}".format(r, 66), 's': "{0:#0{1}x}".format(s, 66)}
+    def _get_request_kwargs(
+        self, path: str, method: str, sign_type: Optional[SignType] = None, **kwargs
+    ):
 
-    def _create_uri(self, path):
-        return '{}/{}'.format(self.API_URL, path)
-
-    def _get_request_kwargs(self, signed, **kwargs):
-
-        kwargs['json'] = kwargs.get('json', {})
-        kwargs['headers'] = kwargs.get('headers', {})
+        kwargs["data"] = kwargs.get("data", {})
+        kwargs["headers"] = kwargs.get("headers", {})
 
         # set default requests timeout
-        kwargs['timeout'] = 10
+        kwargs["timeout"] = 10
 
         # add our global requests params
         if self._requests_params:
             kwargs.update(self._requests_params)
 
-        if signed:
-            # generate signature e.g. {'v': 28 (or 27), 'r': '0x...', 's': '0x...'}
-            kwargs['json'].update(self._generate_signature(kwargs['hash_data']))
+        if sign_type:
+            kwargs["data"]["nonce"] = self._get_nonce()
+            if method in ("post", "delete"):
+                kwargs["data"] = self._wallet_sign(path, method, kwargs["data"])
+            else:
+                kwargs["data"]["nonce"] = str(kwargs["data"]["nonce"])
+            kwargs["headers"]["IDEX-HMAC-Signature"] = self._sign_params(method, kwargs["data"])
 
-            # put hash_data into json param
-            for name, value, _param_type in kwargs['hash_data']:
-                kwargs['json'][name] = value
-
-            # filter out contract address, not required
-            if 'contract_address' in kwargs['json']:
-                del (kwargs['json']['contract_address'])
-
-            # remove the passed hash data
-            del (kwargs['hash_data'])
+        # if get request assign data array to params value for requests lib
+        if kwargs["data"]:
+            if method == "get":
+                kwargs["params"] = kwargs["data"]
+                del kwargs["data"]
+            else:
+                kwargs["json"] = kwargs["data"]
+                del kwargs["data"]
 
         return kwargs
 
     def _init_session(self):
         pass
 
-    def set_wallet_address(self, address, private_key=None):
-        """Set the wallet address. Optionally add the private_key, this is only required for trading.
-
-        :param address: Address of the wallet to use
-        :type address: address string
-        :param private_key: optional - The private key for the address
-        :type private_key: string
-
-        .. code:: python
-
-            client.set_wallet_address('0x925cfc20de3fcbdba2d6e7c75dbb1d0a3f93b8a3', 'priv_key...')
-
-        :returns: nothing
-
-        """
-        self._wallet_address = address.lower()
-        nonce_res = self.get_my_next_nonce()
-        self._start_nonce = nonce_res['nonce']
-        if private_key:
-            if re.match(r"^0x[0-9a-zA-Z]{64}$", private_key) is None:
-                raise(IdexException("Private key in invalid format must satisfy 0x[0-9a-zA-Z]{64}"))
-            self._private_key = private_key
-
-    def get_my_next_nonce(self):
-        raise NotImplementedError()
-
-    def get_wallet_address(self):
-        """Get the wallet address
-
-        .. code:: python
-
-            address = client.get_wallet_address()
-
-        :returns: address string
-
-        """
-        return self._wallet_address
-
-    def get_last_response(self):
+    @property
+    def last_response(self):
         """Get the last response object for inspection
 
         .. code:: python
 
-            response = client.get_last_response()
+            response = client.last_response
 
         :returns: response objects
 
         """
         return self._last_response
 
-    @staticmethod
-    def _num_to_decimal(number):
-        if type(number) == float:
-            number = Decimal(repr(number))
-        elif type(number) == int:
-            number = Decimal(number)
-        elif type(number) == str:
-            number = Decimal(number)
-
-        return number
-
-    @staticmethod
-    def _parse_from_currency_quantity(currency_details, quantity):
-        if currency_details is None:
-            return None
-
-        f_q = Decimal(quantity)
-
-        if 'decimals' not in currency_details:
-            return f_q
-
-        # divide by currency_details['decimals']
-        d_str = "1{}".format(("0" * currency_details['decimals']))
-        res = f_q / Decimal(d_str)
-
-        return res
-
-    def _convert_to_currency_quantity(self, currency_details, quantity):
-        if currency_details is None:
-            return None
-
-        f_q = self._num_to_decimal(quantity)
-
-        if 'decimals' not in currency_details:
-            return f_q
-
-        # multiply by currency_details['decimals']
-        m_str = "1{}".format(("0" * currency_details['decimals']))
-        res = (f_q * Decimal(m_str)).to_integral_exact()
-
-        return '{:d}'.format(int(res))
-
 
 class Client(BaseClient):
-
-    def __init__(self, api_key, address=None, private_key=None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+        private_key=None,
+        requests_params=None,
+        sandbox: bool = False,
+    ):
         """
 
         :param api_key:
         :type api_key: string
-        :param address: optional - Wallet address
-        :type address: address string
+        :param api_secret:
+        :type api_secret: string
         :param private_key: optional - The private key for the address
         :type private_key: string
 
         .. code:: python
 
-            api_key = 'kjdfiaadmad'
-            client = Client(api_key=api_key)
+            # Unauthenticated
+            client = Client()
 
-            # with wallet address and private key
-            address = '0x925cfc20de3fcbdba2d6e7c75dbb1d0a3f93b8a3'
+            # Authenticated with API and private key
+            api_key = '<api_key>'
+            api_secret = '<api_secret>'
             private_key = 'priv_key...'
-            client = Client(api_key=api_key, address=address, private_key=private_key)
+            client = Client(api_key=api_key, api_secret=api_secret, private_key=private_key)
 
         """
 
-        super(Client, self).__init__(api_key)
-
-        if address:
-            self.set_wallet_address(address, private_key)
+        super(Client, self).__init__(api_key, api_secret, private_key, requests_params, sandbox)
 
     def _init_session(self):
-
         session = requests.session()
         session.headers.update(self._get_headers())
         return session
 
-    def _request(self, method, path, signed, **kwargs):
+    def _request(self, method: str, path: str, sign_type: Optional[SignType] = None, **kwargs):
 
-        kwargs = self._get_request_kwargs(signed, **kwargs)
+        kwargs = self._get_request_kwargs(path, method, sign_type, **kwargs)
         uri = self._create_uri(path)
 
         response = getattr(self.session, method)(uri, **kwargs)
@@ -262,249 +248,95 @@ class Client(BaseClient):
         Raises the appropriate exceptions when necessary; otherwise, returns the
         response.
         """
-        if not str(response.status_code).startswith('2'):
+        if not str(response.status_code).startswith("2"):
             raise IdexAPIException(response, response.status_code, response.text)
         try:
-            res = response.json()
-            if 'error' in res:
-                raise IdexAPIException(response, response.status_code, response.text)
-            return res
+            return response.json()
         except ValueError:
-            raise IdexRequestException('Invalid Response: %s' % response.text)
+            raise IdexRequestException("Invalid Response: %s" % response.text)
 
-    def _get(self, path, signed=False, **kwargs):
-        return self._request('get', path, signed, **kwargs)
+    def _get(self, path, sign_type: Optional[SignType] = None, **kwargs):
+        return self._request("get", path, sign_type, **kwargs)
 
-    def _post(self, path, signed=False, **kwargs):
-        return self._request('post', path, signed, **kwargs)
+    def _post(self, path, sign_type: Optional[SignType] = None, **kwargs):
+        return self._request("post", path, sign_type, **kwargs)
 
-    def _put(self, path, signed=False, **kwargs):
-        return self._request('put', path, signed, **kwargs)
+    def _put(self, path, sign_type: Optional[SignType] = None, **kwargs):
+        return self._request("put", path, sign_type, **kwargs)
 
-    def _delete(self, path, signed=False, **kwargs):
-        return self._request('delete', path, signed, **kwargs)
+    def _delete(self, path, sign_type: Optional[SignType] = None, **kwargs):
+        return self._request("delete", path, sign_type, **kwargs)
 
-    # Market Endpoints
+    # Public Data Endpoints
 
-    def get_tickers(self):
-        """Get all market tickers
+    def ping(self):
+        """Tests connectivity to the REST API.
 
-        Please note: If any field is unavailable due to a lack of trade history or a lack of 24hr data, the field
-        will be set to 'N/A'. percentChange, baseVolume, and quoteVolume will never be 'N/A' but may be 0.
+        https://api-docs-v3.idex.io/#get-ping
 
-        https://github.com/AuroraDAO/idex-api-docs#returnticker
+        :returns: API Response
 
-        .. code:: python
+        .. code-block:: python
 
-            tickers = client.get_tickers()
+            {}
+        """
+        return self._get("ping")
+
+    def get_server_time(self):
+        """Returns the current server time.
+
+        https://api-docs-v3.idex.io/#get-time
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            {'serverTime': 1652431505364}
+        """
+        return self._get("time")
+
+    def get_exchange(self):
+        """Returns basic information about the exchange.
+
+        https://api-docs-v3.idex.io/#get-exchange
 
         :returns: API Response
 
         .. code-block:: python
 
             {
-                ETH_SAN:  {
-                    last: '0.000981',
-                    high: '0.0010763',
-                    low: '0.0009777',
-                    lowestAsk: '0.00098151',
-                    highestBid: '0.0007853',
-                    percentChange: '-1.83619353',
-                    baseVolume: '7.3922603247161',
-                    quoteVolume: '7462.998433'
-                },
-                ETH_LINK: {
-                    last: '0.001',
-                    high: '0.0014',
-                    low: '0.001',
-                    lowestAsk: '0.002',
-                    highestBid: '0.001',
-                    percentChange: '-28.57142857',
-                    baseVolume: '13.651606265667369466',
-                    quoteVolume: '9765.891979953083752189'
-                }
-                # all possible markets follow ...
+                "timeZone": "UTC",
+                "serverTime": 1590408000000,
+                "maticDepositContractAddress": "0x...",
+                "maticCustodyContractAddress": "0x...",
+                "maticUsdPrice": "1.46",
+                "gasPrice": 7,
+                "volume24hUsd": "10416227.98",
+                "totalVolumeUsd": "2921007583.74",
+                "totalTrades": 5372019,
+                "totalValueLockedUsd": "218462011.50",
+                "idexTokenAddress": "0x...",
+                "idexUsdPrice": "1.62",
+                "idexMarketCapUsd": "954070759.33",
+                "makerFeeRate": "0.0010",
+                "takerFeeRate": "0.0025",
+                "takerIdexFeeRate": "0.0005",
+                "takerLiquidityProviderFeeRate": "0.0020",
+                "makerTradeMinimum": "10.00000000",
+                "takerTradeMinimum": "1.00000000",
+                "withdrawalMinimum": "0.50000000",
+                "liquidityAdditionMinimum": "0.50000000",
+                "liquidityRemovalMinimum": "0.40000000",
+                "blockConfirmationDelay": 128
             }
 
-        :raises:  IdexResponseException,  IdexAPIException
-
         """
+        return self._get("exchange")
 
-        return self._post('returnTicker')
+    def get_assets(self):
+        """Returns information about assets supported by the exchange
 
-    def get_ticker(self, market):
-        """Get ticker for selected market
-
-        Please note: If any field is unavailable due to a lack of trade history or a lack of 24hr data, the field
-        will be set to 'N/A'. percentChange, baseVolume, and quoteVolume will never be 'N/A' but may be 0.
-
-        https://github.com/AuroraDAO/idex-api-docs#returnticker
-
-        :param market: Name of market e.g. ETH_SAN
-        :type market: string
-
-        .. code:: python
-
-            ticker = client.get_ticker('ETH_SAN')
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                last: '0.000981',
-                high: '0.0010763',
-                low: '0.0009777',
-                lowestAsk: '0.00098151',
-                highestBid: '0.0007853',
-                percentChange: '-1.83619353',
-                baseVolume: '7.3922603247161',
-                quoteVolume: '7462.998433'
-            }
-
-        :raises:  IdexResponseException,  IdexAPIException
-
-        """
-
-        data = {
-            'market': market
-        }
-
-        return self._post('returnTicker', False, json=data)
-
-    def get_24hr_volume(self):
-
-        """Get all market tickers
-
-        https://github.com/AuroraDAO/idex-api-docs#return24volume
-
-        .. code:: python
-
-            volume = client.get_24hr_volume()
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                ETH_REP: {
-                    ETH: '1.3429046745',
-                    REP: '105.29046745'
-                },
-                ETH_DVIP: {
-                    ETH: '4',
-                    DVIP: '4'
-                },
-                totalETH: '5.3429046745'
-            }
-
-        :raises:  IdexResponseException,  IdexAPIException
-
-        """
-
-        return self._post('return24Volume')
-
-    def get_order_book(self, market, count=1):
-        """Get order book for selected market
-
-        Each market returned will have an asks and bids property containing all the sell orders and buy orders
-        sorted by best price. Order objects will contain a price amount total and orderHash property but also
-        a params property which will contain additional data about the order useful for filling or verifying it.
-
-        https://github.com/AuroraDAO/idex-api-docs#returnorderbook
-
-        :param market: Name of market e.g. ETH_SAN
-        :type market: string
-        :param count: Number of items to return
-        :type count: int
-
-        .. code:: python
-
-            orderbook = client.get_order_book('ETH_SAN')
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                asks: [
-                    {
-                        price: '2',
-                        amount: '1',
-                        total: '2',
-                        orderHash: '0x6aee6591def621a435dd86eafa32dfc534d4baa38d715988d6f23f3e2f20a29a',
-                        params: {
-                            tokenBuy: '0x0000000000000000000000000000000000000000',
-                            buySymbol: 'ETH',
-                            buyPrecision: 18,
-                            amountBuy: '2000000000000000000',
-                            tokenSell: '0xf59fad2879fb8380ffa6049a48abf9c9959b3b5c',
-                            sellSymbol: 'DVIP',
-                            sellPrecision: 8,
-                            amountSell: '100000000',
-                            expires: 190000,
-                            nonce: 164,
-                            user: '0xca82b7b95604f70b3ff5c6ede797a28b11b47d63'
-                        }
-                    }
-                ],
-                bids: [
-                    {
-                        price: '1',
-                        amount: '2',
-                        total: '2',
-                        orderHash: '0x9ba97cfc6d8e0f9a72e9d26c377be6632f79eaf4d87ac52a2b3d715003b6536e',
-                        params: {
-                            tokenBuy: '0xf59fad2879fb8380ffa6049a48abf9c9959b3b5c',
-                            buySymbol: 'DVIP',
-                            buyPrecision: 8,
-                            amountBuy: '200000000',
-                            tokenSell: '0x0000000000000000000000000000000000000000',
-                            sellSymbol: 'ETH',
-                            sellPrecision: 18,
-                            amountSell: '2000000000000000000',
-                            expires: 190000,
-                            nonce: 151,
-                            user: '0xca82b7b95604f70b3ff5c6ede797a28b11b47d63'
-                        }
-                    }
-                ]
-            }
-
-        :raises:  IdexResponseException,  IdexAPIException
-
-        """
-
-        data = {
-            'market': market,
-            'count': count
-        }
-
-        return self._post('returnOrderBook', False, json=data)
-
-    def get_open_orders(self, market, address, count=10, cursor=None):
-        """Get the open orders for a given market and address
-
-        Output is similar to the output for get_order_book() except that orders are not sorted by type or price, but
-        are rather displayed in the order of insertion. As is the case with get_order_book( there is a params property
-        of the response value that contains details on the order which can help with verifying its authenticity.
-
-        https://github.com/AuroraDAO/idex-api-docs#returnopenorders
-
-        :param market: Name of market e.g. ETH_SAN
-        :type market: string
-        :param address: Address to return open orders associated with
-        :type address: address string
-        :param count: amount of results to return
-        :type count: int
-        :param cursor: For pagination. Provide the value returned in the idex-next-cursor HTTP header to request the next slice (or page)
-        :type cursor: str
-
-        .. code:: python
-
-            orders = client.get_open_orders(
-                'ETH_SAN',
-                '0xca82b7b95604f70b3ff5c6ede797a28b11b47d63')
+        https://api-docs-v3.idex.io/#get-assets
 
         :returns: API Response
 
@@ -512,609 +344,368 @@ class Client(BaseClient):
 
             [
                 {
-                    orderNumber: 1412,
-                    orderHash: '0xf1bbc500af8d411b0096ac62bc9b60e97024ad8b9ea170340ff0ecfa03536417',
-                    price: '2.3',
-                    amount: '1.2',
-                    total: '2.76',
-                    type: 'sell',
-                    params: {
-                        tokenBuy: '0x0000000000000000000000000000000000000000',
-                        buySymbol: 'ETH',
-                        buyPrecision: 18,
-                        amountBuy: '2760000000000000000',
-                        tokenSell: '0xf59fad2879fb8380ffa6049a48abf9c9959b3b5c',
-                        sellSymbol: 'DVIP',
-                        sellPrecision: 8,
-                        amountSell: '120000000',
-                        expires: 190000,
-                        nonce: 166,
-                        user: '0xca82b7b95604f70b3ff5c6ede797a28b11b47d63'
-                    }
+                    "name": "Ether",
+                    "symbol": "ETH",
+                    "contractAddress": "0x0000000000000000000000000000000000000000",
+                    "assetDecimals": 18,
+                    "exchangeDecimals": 8,
+                    "tokenPrice": "152.67175572"
                 },
                 {
-                    orderNumber: 1413,
-                    orderHash: '0x62748b55e1106f3f453d51f9b95282593ef5ce03c22f3235536cf63a1476d5e4',
-                    price: '2.98',
-                    amount: '1.2',
-                    total: '3.576',
-                    type: 'sell',
-                    params:{
-                        tokenBuy: '0x0000000000000000000000000000000000000000',
-                        buySymbol: 'ETH',
-                        buyPrecision: 18,
-                        amountBuy: '3576000000000000000',
-                        tokenSell: '0xf59fad2879fb8380ffa6049a48abf9c9959b3b5c',
-                        sellSymbol: 'DVIP',
-                        sellPrecision: 8,
-                        amountSell: '120000000',
-                        expires: 190000,
-                        nonce: 168,
-                        user: '0xca82b7b95604f70b3ff5c6ede797a28b11b47d63'
-                    }
-                }
+                    "name": "USD Coin",
+                    "symbol": "USDC",
+                    "contractAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+                    "assetDecimals": 6,
+                    "exchangeDecimals": 8,
+                    "tokenPrice": "0.76335877"
+                },
+                ...
             ]
 
-        :raises:  IdexResponseException,  IdexAPIException
-
         """
+        return self._get("assets")
 
-        data = {
-            'market': market,
-            'address': address,
-            'count': count
-        }
+    def get_asset(self, asset: str):
+        """Get the details for a particular asset using its token name or address
 
-        if cursor:
-            data['cursor'] = cursor
-
-        return self._post('returnOpenOrders', False, json=data)
-
-    @require_address
-    def get_my_open_orders(self, market, count=10, cursor=None):
-        """Get your open orders for a given market
-
-        Output is similar to the output for get_order_book() except that orders are not sorted by type or price, but
-        are rather displayed in the order of insertion. As is the case with get_order_book( there is a params property
-        of the response value that contains details on the order which can help with verifying its authenticity.
-
-        https://github.com/AuroraDAO/idex-api-docs#returnopenorders
-
-        :param market: Name of market e.g. ETH_SAN
-        :type market: string
-        :param count: amount of results to return
-        :type count: int
-        :param cursor: For pagination. Provide the value returned in the idex-next-cursor HTTP header to request the next slice (or page)
-        :type cursor: str
-
-        .. code:: python
-
-            orders = client.get_my_open_orders('ETH_SAN')
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            [
-                {
-                    orderNumber: 1412,
-                    orderHash: '0xf1bbc500af8d411b0096ac62bc9b60e97024ad8b9ea170340ff0ecfa03536417',
-                    price: '2.3',
-                    amount: '1.2',
-                    total: '2.76',
-                    type: 'sell',
-                    params: {
-                        tokenBuy: '0x0000000000000000000000000000000000000000',
-                        buySymbol: 'ETH',
-                        buyPrecision: 18,
-                        amountBuy: '2760000000000000000',
-                        tokenSell: '0xf59fad2879fb8380ffa6049a48abf9c9959b3b5c',
-                        sellSymbol: 'DVIP',
-                        sellPrecision: 8,
-                        amountSell: '120000000',
-                        expires: 190000,
-                        nonce: 166,
-                        user: '0xca82b7b95604f70b3ff5c6ede797a28b11b47d63'
-                    }
-                },
-                {
-                    orderNumber: 1413,
-                    orderHash: '0x62748b55e1106f3f453d51f9b95282593ef5ce03c22f3235536cf63a1476d5e4',
-                    price: '2.98',
-                    amount: '1.2',
-                    total: '3.576',
-                    type: 'sell',
-                    params:{
-                        tokenBuy: '0x0000000000000000000000000000000000000000',
-                        buySymbol: 'ETH',
-                        buyPrecision: 18,
-                        amountBuy: '3576000000000000000',
-                        tokenSell: '0xf59fad2879fb8380ffa6049a48abf9c9959b3b5c',
-                        sellSymbol: 'DVIP',
-                        sellPrecision: 8,
-                        amountSell: '120000000',
-                        expires: 190000,
-                        nonce: 168,
-                        user: '0xca82b7b95604f70b3ff5c6ede797a28b11b47d63'
-                    }
-                }
-            ]
-
-        :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
-
-        """
-
-        return self.get_open_orders(market, self._wallet_address, count, cursor)
-
-    def get_order_status(self, order_hash):
-        """Returns a single order
-
-        https://docs.idex.market/#operation/returnOrderStatus
-
-        :param order_hash: The order hash to query for associated trades
-        :type order_hash: 256-bit hex string
-
-        .. code:: python
-
-            status = client.get_order_status('0xca82b7b95604f70b3ff5c6ede797a28b11b47d63')
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                "timestamp": 1516415000,
-                "market": "ETH_AURA",
-                "orderNumber": 2101,
-                "orderHash": "0x3fe808be7b5df3747e5534056e9ff45ead5b1fcace430d7b4092e5fcd7161e21",
-                "price": "0.000129032258064516",
-                "amount": "3100",
-                "total": "0.4",
-                "type": "buy",
-                "params": {
-                    "tokenBuy": "0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098",
-                    "buyPrecision": 18,
-                    "amountBuy": "3100000000000000000000",
-                    "tokenSell": "0x0000000000000000000000000000000000000000",
-                    "sellPrecision": 18,
-                    "amountSell": "400000000000000000",
-                    "expires": 100000,
-                    "nonce": "1",
-                    "user": "0x57b080554ebafc8b17f4a6fd090c18fc8c9188a0"
-                },
-                "filled": "1900",
-                "initialAmount": "5000",
-                "status": "open"
-            }
-
-        :raises:  IdexResponseException,  IdexAPIException
-
-        """
-
-        data = {
-            'orderHash': order_hash
-        }
-
-        return self._post('returnOrderStatus', False, json=data)
-
-    def get_trade_history(self, market=None, address=None, start=None, end=None, count=10, sort='desc', cursor=None):
-        """Get the past 200 trades for a given market and address, or up to 10000 trades between a range specified in
-        UNIX timetsamps by the "start" and "end" properties of your JSON input.
-
-        https://github.com/AuroraDAO/idex-api-docs#returntradehistory
-
-        :param market: optional - will return an array of trade objects for the market, if omitted, will return an object of arrays of trade objects keyed by each market
-        :type market: string
-        :param address: optional - If specified, return value will only include trades that involve the address as the maker or taker.
-        :type address: address string
-        :param start: optional - The inclusive UNIX timestamp (seconds since epoch) marking the earliest trade that will be returned in the response, (Default - 0)
-        :type start: int
-        :param end: optional - The inclusive UNIX timestamp marking the latest trade that will be returned in the response. (Default - current timestamp)
-        :type end: int
-        :param count: optional - Number of records to be returned per request. Valid range: 1 .. 100
-        :type count: int
-        :param sort: optional - Possible values are asc (oldest first) and desc (newest first). Defaults to desc.
-        :type sort: string
-        :param cursor: optional - For pagination. Provide the value returned in the idex-next-cursor HTTP header to request the next slice (or page). This endpoint uses the tid property of a record for the cursor.
-        :type cursor: string
-
-        .. code:: python
-
-            trades = client.get_trade_history()
-
-            # get trades for the last 2 hours for ETH EOS market
-            start = int(time.time()) - (60 * 2) # 2 hours ago
-            trades = client.get_trade_history(market='ETH_EOS', start=start)
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                ETH_REP: [
-                    {
-                        date: '2017-10-11 21:41:15',
-                        amount: '0.3',
-                        type: 'buy',
-                        total: '1',
-                        price: '0.3',
-                        orderHash: '0x600c405c44d30086771ac0bd9b455de08813127ff0c56017202c95df190169ae',
-                        uuid: 'e8719a10-aecc-11e7-9535-3b8451fd4699',
-                        transactionHash: '0x28b945b586a5929c69337929533e04794d488c2d6e1122b7b915705d0dff8bb6'
-                    }
-                ]
-            }
-
-        :raises:  IdexResponseException,  IdexAPIException
-
-        """
-
-        data = {}
-        if market:
-            data['market'] = market
-        if address:
-            data['address'] = address
-        if start:
-            data['start'] = start
-        if end:
-            data['end'] = end
-        if count:
-            data['count'] = count
-        if sort:
-            data['sort'] = sort
-        if cursor:
-            data['cursor'] = cursor
-
-        return self._post('returnTradeHistory', False, json=data)
-
-    @require_address
-    def get_my_trade_history(self, market=None, start=None, end=None, count=10, sort='desc', cursor=None):
-        """Get your past 200 trades for a given market, or up to 10000 trades between a range specified in UNIX
-        timestamps by the "start" and "end" properties of your JSON input.
-
-        https://github.com/AuroraDAO/idex-api-docs#returntradehistory
-
-        :param market: optional - will return an array of trade objects for the market, if omitted, will return an object of arrays of trade objects keyed by each market
-        :type market: string
-        :param start: optional - The inclusive UNIX timestamp (seconds since epoch) marking the earliest trade that will be returned in the response, (Default - 0)
-        :type start: int
-        :param end: optional - The inclusive UNIX timestamp marking the latest trade that will be returned in the response. (Default - current timestamp)
-        :type end: int
-        :param count: optional - Number of records to be returned per request. Valid range: 1 .. 100
-        :type count: int
-        :param sort: optional - Possible values are asc (oldest first) and desc (newest first). Defaults to desc.
-        :type sort: string
-        :param cursor: optional - For pagination. Provide the value returned in the idex-next-cursor HTTP header to request the next slice (or page). This endpoint uses the tid property of a record for the cursor.
-        :type cursor: string
-
-        .. code:: python
-
-            trades = client.get_my_trade_history()
-
-            # get trades for the last 2 hours for ETH EOS market
-            start = int(time.time()) - (60 * 2) # 2 hours ago
-            trades = client.get_my_trade_history(market='ETH_EOS', start=start)
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                ETH_REP: [
-                    {
-                        date: '2017-10-11 21:41:15',
-                        amount: '0.3',
-                        type: 'buy',
-                        total: '1',
-                        price: '0.3',
-                        orderHash: '0x600c405c44d30086771ac0bd9b455de08813127ff0c56017202c95df190169ae',
-                        uuid: 'e8719a10-aecc-11e7-9535-3b8451fd4699',
-                        transactionHash: '0x28b945b586a5929c69337929533e04794d488c2d6e1122b7b915705d0dff8bb6'
-                    }
-                ]
-            }
-
-        :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
-
-        """
-
-        return self.get_trade_history(market, self._wallet_address, start, end, count, sort, cursor)
-
-    def get_currencies(self):
-        """Get token data indexed by symbol
-
-        https://github.com/AuroraDAO/idex-api-docs#returncurrencies
-
-        .. code:: python
-
-            currencies = client.get_currencies()
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                ETH: {
-                    decimals: 18,
-                    address: '0x0000000000000000000000000000000000000000',
-                    name: 'Ether'
-                },
-                REP: {
-                    decimals: 8,
-                    address: '0xc853ba17650d32daba343294998ea4e33e7a48b9',
-                    name: 'Reputation'
-                },
-                DVIP: {
-                    decimals: 8,
-                    address: '0xf59fad2879fb8380ffa6049a48abf9c9959b3b5c',
-                    name: 'Aurora'
-                }
-            }
-
-        :raises:  IdexResponseException,  IdexAPIException
-
-        """
-
-        return self._post('returnCurrencies')
-
-    def get_currency(self, currency):
-        """Get the details for a particular currency using it's token name or address
-
-        :param currency: Name of the currency e.g. EOS or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
-        :type currency: string or hex string
+        :param asset: Name of the currency e.g. EOS or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
+        :type asset: string or hex string
 
         .. code:: python
 
             # using token name
-            currency = client.get_currency('REP')
+            currency = client.get_asset('USDT')
 
             # using the address string
-            currency = client.get_currency('0xc853ba17650d32daba343294998ea4e33e7a48b9')
+            currency = client.get_asset('0xc2132D05D31c914a87C6611C10748AEb04B58e8F')
 
         :returns:
 
         .. code-block:: python
 
             {
-                decimals: 8,
-                address: '0xc853ba17650d32daba343294998ea4e33e7a48b9',
-                name: 'Reputation'
+                'name': 'Tether',
+                'symbol': 'USDT',
+                'contractAddress': '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+                'assetDecimals': 6,
+                'exchangeDecimals': 8,
+                'maticPrice': '1.46249520'
             }
 
         :raises:  IdexCurrencyNotFoundException, IdexResponseException,  IdexAPIException
 
         """
 
-        if currency not in self._currency_addresses:
-            self._currency_addresses = self.get_currencies()
+        if asset not in self._asset_addresses:
+            self._asset_addresses = self.get_assets()
 
         res = None
-        if currency[:2] == '0x':
-            for token, c in self._currency_addresses.items():
-                if c['address'] == currency:
+        if asset[:2] == "0x":
+            for token, c in self._asset_addresses.items():
+                if c["contractAddress"] == asset:
                     res = c
                     break
-            # check if we found the currency
             if res is None:
-                raise IdexCurrencyNotFoundException(currency)
+                raise IdexCurrencyNotFoundException(asset)
         else:
-            if currency not in self._currency_addresses:
-                raise IdexCurrencyNotFoundException(currency)
-            res = self._currency_addresses[currency]
+            if asset not in self._asset_addresses:
+                raise IdexCurrencyNotFoundException(asset)
+            res = self._asset_addresses[asset]
 
         return res
 
-    def get_balances(self, address, complete=False):
-        """Get available balances for an address (total deposited minus amount in open orders) indexed by token symbol.
+    def asset_to_address(self, asset: str):
+        """Convert an asset name to an asset contract address"""
+        if asset.startswith("0x"):
+            return asset
+        asset_details = self.get_asset(asset)
+        return asset_details["contractAddress"]
 
-        https://github.com/AuroraDAO/idex-api-docs#returnbalances
+    def get_markets(self):
+        """Returns information about the currently listed markets.
 
-        :param address: Address to query balances of
-        :type address: address string
-        :param complete: Include available balances along with the amount you have in open orders for each token (Default False)
-        :param complete: bool
-
-        .. code:: python
-
-            balances = client.get_balances('0xca82b7b95604f70b3ff5c6ede797a28b11b47d63')
+        https://api-docs-v3.idex.io/#get-markets
 
         :returns: API Response
 
         .. code-block:: python
 
-            # Without complete details
-            {
-                REP: '25.55306545',
-                DVIP: '200000000.31012358'
-            }
-
-            # With complete details
-            {
-                REP: {
-                    available: '25.55306545',
-                    onOrders: '0'
+            [
+                {
+                    "market": "ETH-USDC",
+                    "type": "hybrid",
+                    "status": "activeHybrid",
+                    "baseAsset": "ETH",
+                    "baseAssetPrecision": 8,
+                    "quoteAsset": "USDC",
+                    "quoteAssetPrecision": 8,
+                    "makerFeeRate": "0.0010",
+                    "takerFeeRate": "0.0025",
+                    "takerIdexFeeRate": "0.0005",
+                    "takerLiquidityProviderFeeRate": "0.0020"
                 },
-                DVIP: {
-                    available: '200000000.31012358',
-                    onOrders: '0'
-                }
-            }
-
-        :raises:  IdexResponseException,  IdexAPIException
-
+                ...
+            ]
         """
+        return self._get("markets")
 
-        data = {
-            'address': address
-        }
+    # Market Endpoints
 
-        path = 'returnBalances'
-        if complete:
-            path = 'returnCompleteBalances'
+    def get_tickers(self, market: Optional[str] = None) -> List[Dict]:
+        """Returns market statistics for the trailing 24-hour period.
 
-        return self._post(path, False, json=data)
-
-    @require_address
-    def get_my_balances(self, complete=False):
-        """Get your available balances (total deposited minus amount in open orders) indexed by token symbol.
-
-        https://github.com/AuroraDAO/idex-api-docs#returnbalances
-
-        :param complete: Include available balances along with the amount you have in open orders for each token (Default False)
-        :param complete: bool
-
-        .. code:: python
-
-            balances = client.get_my_balances()
+        https://api-docs-v3.idex.io/#get-tickers
 
         :returns: API Response
 
         .. code-block:: python
 
-            # Without complete details
-            {
-                REP: '25.55306545',
-                DVIP: '200000000.31012358'
-            }
-
-            # With complete details
-            {
-                REP: {
-                    available: '25.55306545',
-                    onOrders: '0'
+            [
+                {
+                    "market": "ETH-USDC",
+                    "time": 1590408000000,
+                    "open": "202.11928302",
+                    "high": "207.58100029",
+                    "low": "201.85600392",
+                    "close": "206.00192301",
+                    "closeQuantity": "9.50000000",
+                    "baseVolume": "11297.01959248",
+                    "quoteVolume": "2327207.76033252",
+                    "percentChange": "1.92",
+                    "numTrades": 14201,
+                    "ask": "206.00207150",
+                    "bid": "206.00084721",
+                    "sequence": 848728
                 },
-                DVIP: {
-                    available: '200000000.31012358',
-                    onOrders: '0'
-                }
-            }
-
-        :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
+                ...
+            ]
 
         """
+        data: Dict[str, Any] = {}
+        if market:
+            data["market"] = market
 
-        return self.get_balances(self._wallet_address, complete)
+        return self._get("tickers", data=data)
 
-    def get_transfers(self, address, start=None, end=None):
-        """Returns the deposit and withdrawal history for an address within a range, specified by the "start" and "end"
-        properties of the JSON input, both of which must be UNIX timestamps. Withdrawals can be marked as "PENDING" if
-        they are queued for dispatch, "PROCESSING" if the transaction has been dispatched, and "COMPLETE" if the
-        transaction has been mined.
+    def get_ticker(self, market: str) -> Dict:
+        """Get ticker for selected market
 
-        https://github.com/AuroraDAO/idex-api-docs#returndepositswithdrawals
-
-        :param address: Address to query deposit/withdrawal history for
-        :type address: address string
-        :param start: optional - Inclusive starting UNIX timestamp of returned results (Default - 0)
-        :type start: int
-        :param end: optional -  Inclusive ending UNIX timestamp of returned results (Default - current timestamp)
-        :type end: int
-
-        .. code:: python
-
-            transfers = client.get_transfers('0xca82b7b95604f70b3ff5c6ede797a28b11b47d63')
+        https://api-docs-v3.idex.io/#get-tickers
 
         :returns: API Response
 
         .. code-block:: python
 
             {
-                deposits: [
-                    {
-                        depositNumber: 265,
-                        currency: 'ETH',
-                        amount: '4.5',
-                        timestamp: 1506550595,
-                        transactionHash: '0x52897291dba0a7b255ee7a27a8ca44a9e8d6919ca14f917616444bf974c48897'
-                    }
-                ],
-                withdrawals: [
-                    {
-                        withdrawalNumber: 174,
-                        currency: 'ETH',
-                        amount: '4.5',
-                        timestamp: 1506552152,
-                        transactionHash: '0xe52e9c569fe659556d1e56d8cca2084db0b452cd889f55ec3b4e2f3af61faa57',
-                        status: 'COMPLETE'
-                    }
-                ]
+                "market": "ETH-USDC",
+                "time": 1590408000000,
+                "open": "202.11928302",
+                "high": "207.58100029",
+                "low": "201.85600392",
+                "close": "206.00192301",
+                "closeQuantity": "9.50000000",
+                "baseVolume": "11297.01959248",
+                "quoteVolume": "2327207.76033252",
+                "percentChange": "1.92",
+                "numTrades": 14201,
+                "ask": "206.00207150",
+                "bid": "206.00084721",
+                "sequence": 848728
             }
-
-        :raises:  IdexResponseException,  IdexAPIException
 
         """
 
-        data = {
-            'address': address
-        }
+        return self.get_tickers(market)[0]
+
+    def get_candles(
+        self,
+        market: str,
+        interval: CandleInterval,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+    ) -> List[Dict]:
+        """Returns candle (OHLCV) data for a market.
+
+        https://api-docs-v3.idex.io/#get-candles
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    "start": 1590393000000,
+                    "open": "202.11928302",
+                    "high": "202.98100029",
+                    "low": "201.85600392",
+                    "close": "202.50192301",
+                    "volume": "39.22576247",
+                    "sequence": 848678
+                },
+                ...
+            ]
+        """
+        data: Dict[str, Any] = {"market": market, "interval": interval.value}
         if start:
-            data['start'] = start
+            data["start"] = start
         if end:
-            data['end'] = end
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
 
-        return self._post('returnDepositsWithdrawals', False, json=data)
+        return self._get("candles", data=data)
 
-    @require_address
-    def get_my_transfers(self, start=None, end=None):
-        """Returns your deposit and withdrawal history within a range, specified by the "start" and "end" properties of
-        the JSON input, both of which must be UNIX timestamps. Withdrawals can be marked as "PENDING" if they are queued
-        for dispatch, "PROCESSING" if the transaction has been dispatched, and "COMPLETE" if the transaction
-        has been mined.
+    def get_trades(
+        self,
+        market: str,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ) -> List[Dict]:
+        """Returns trade data for a market.
 
-        https://github.com/AuroraDAO/idex-api-docs#returndepositswithdrawals
-
-        :param start: optional - Inclusive starting UNIX timestamp of returned results (Default - 0)
-        :type start: int
-        :param end: optional -  Inclusive ending UNIX timestamp of returned results (Default - current timestamp)
-        :type end: int
-
-        .. code:: python
-
-            transfers = client.get_transfers('0xca82b7b95604f70b3ff5c6ede797a28b11b47d63')
+        https://api-docs-v3.idex.io/#get-trades
 
         :returns: API Response
 
         .. code-block:: python
 
+            [
+                {
+                    "fillId": "a0b6a470-a6bf-11ea-90a3-8de307b3b6da",
+                    "price": "202.74900000",
+                    "quantity": "10.00000000",
+                    "quoteQuantity": "2027.49000000",
+                    "time": 1590394500000,
+                    "makerSide": "sell",
+                    "type": "hybrid",
+                    "sequence": 848778
+                },
+                ...
+            ]
+
+        """
+        data: Dict[str, Any] = {"market": market}
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+
+        return self._get("trades", data=data)
+
+    def get_order_book(
+        self,
+        market: str,
+        level: Optional[OrderbookLevel] = OrderbookLevel.LEVEL_1,
+        limit: Optional[int] = 50,
+        limit_order_only: Optional[bool] = False,
+    ):
+        """Get order book for selected market
+
+        :returns: Level 1 Response
+
+        .. code-block:: python
+
             {
-                deposits: [
-                    {
-                        depositNumber: 265,
-                        currency: 'ETH',
-                        amount: '4.5',
-                        timestamp: 1506550595,
-                        transactionHash: '0x52897291dba0a7b255ee7a27a8ca44a9e8d6919ca14f917616444bf974c48897'
-                    }
+                "sequence": 71228121,
+                "bids": [
+                    [ "202.00200000", "13.88204000", 2 ]
                 ],
-                withdrawals: [
-                    {
-                        withdrawalNumber: 174,
-                        currency: 'ETH',
-                        amount: '4.5',
-                        timestamp: 1506552152,
-                        transactionHash: '0xe52e9c569fe659556d1e56d8cca2084db0b452cd889f55ec3b4e2f3af61faa57',
-                        status: 'COMPLETE'
-                    }
-                ]
+                "asks": [
+                    [ "202.01000000", "8.11400000", 0 ]
+                ],
+                "pool": {
+                    "baseReserveQuantity": "28237.08610815",
+                    "quoteReserveQuantity": "5703947.86801900"
+                }
             }
 
-        :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
+        :returns: Level 2 Response
+
+        .. code-block:: python
+
+            {
+                "sequence": 71228121,
+                "bids": [
+                    [ "202.00200000", "13.88204000", 2 ],
+                    [ "202.00100000", "8.11411500", 0 ],
+                    ...
+                ],
+                "asks": [
+                    [ "202.01000000", "8.11400000", 0 ],
+                    [ "202.01100000", "8.11392000", 0 ],
+                    ...
+                ],
+                "pool": {
+                    "baseReserveQuantity": "28237.08610815",
+                    "quoteReserveQuantity": "5703947.86801900"
+                }
+            }
 
         """
 
-        return self.get_transfers(self._wallet_address, start, end)
+        data: Dict[str, Any] = {"market": market}
+        if level:
+            data["level"] = level.value
+        if limit:
+            data["limit"] = limit
+        if limit_order_only:
+            data["limit_order_only"] = True
 
-    def get_order_trades(self, order_hash):
-        """Get all trades involving a given order hash, specified by the order_hash
+        return self._get("orderbook", data=data)
 
-        https://github.com/AuroraDAO/idex-api-docs#returnordertrades
+    # User Data Endpoints
 
-        :param order_hash: The order hash to query for associated trades
-        :type order_hash: 256-bit hex string
+    def get_account(self):
+        """Returns information about the API account.
 
-        .. code:: python
+        :returns: API Response
 
-            trades = client.get_order_trades('0x62748b55e1106f3f453d51f9b95282593ef5ce03c22f3235536cf63a1476d5e4')
+        .. code-block:: python
+
+            {
+                "depositEnabled": true,
+                "orderEnabled": true,
+                "cancelEnabled": true,
+                "withdrawEnabled": true,
+                "totalPortfolioValueUsd": "127182.82",
+                "makerFeeRate": "0.0010",
+                "takerFeeRate": "0.0025",
+                "takerIdexFeeRate": "0.0005",
+                "takerLiquidityProviderFeeRate": "0.0020"
+            }
+
+        """
+
+        return self._get("user", sign_type=SignType.USER)
+
+    def associate_wallet(self, wallet_address: str):
+        """Associates a wallet with an API account
+
+        https://api-docs-v3.idex.io/#associate-wallet
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            {
+                "address": "0xA71C4aeeAabBBB8D2910F41C2ca3964b81F7310d",
+                "totalPortfolioValueUsd": "88141.77",
+                "time": 1590393600000
+            }
+
+        """
+
+        return self._get("wallets", sign_type=SignType.TRADE, data={"wallet": wallet_address})
+
+    def get_wallets(self):
+        """Returns information about the API account.
 
         :returns: API Response
 
@@ -1122,290 +713,24 @@ class Client(BaseClient):
 
             [
                 {
-                    date: '2017-10-11 21:41:15',
-                    amount: '0.3',
-                    type: 'buy',
-                    total: '1',
-                    price: '0.3',
-                    uuid: 'e8719a10-aecc-11e7-9535-3b8451fd4699',
-                    transactionHash: '0x28b945b586a5929c69337929533e04794d488c2d6e1122b7b915705d0dff8bb6'
-                }
+                    "address": "0xA71C4aeeAabBBB8D2910F41C2ca3964b81F7310d",
+                    "totalPortfolioValueUsd": "88141.77",
+                    "time": 1590393600000
+                },
+                ...
             ]
 
-        :raises:  IdexResponseException,  IdexAPIException
-
         """
 
-        data = {
-            'orderHash': order_hash
-        }
-
-        return self._post('returnOrderTrades', False, json=data)
-
-    def get_next_nonce(self, address):
-        """Get the lowest nonce that you can use from the given address in one of the trade functions
-
-        https://github.com/AuroraDAO/idex-api-docs#returnnextnonce
-
-        :param address: The address to query for the next nonce to use
-        :type address: address string
-
-        .. code:: python
-
-            nonce = client.get_next_nonce('0xf59fad2879fb8380ffa6049a48abf9c9959b3b5c')
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                nonce: 2650
-            }
-
-        :raises:  IdexResponseException,  IdexAPIException
-
-        """
-
-        data = {
-            'address': address
-        }
-
-        return self._post('returnNextNonce', False, json=data)
-
-    @require_address
-    def get_my_next_nonce(self):
-        """Get the lowest nonce that you can use in one of the trade functions
-
-        https://github.com/AuroraDAO/idex-api-docs#returnnextnonce
-
-        .. code:: python
-
-            nonce = client.get_next_nonce('0xf59fad2879fb8380ffa6049a48abf9c9959b3b5c')
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                nonce: 2650
-            }
-
-        :raises:  IdexWalletAddressNotFoundException, IdexResponseException,  IdexAPIException
-
-        """
-
-        return self.get_next_nonce(self._wallet_address)
-
-    def _get_contract_address(self):
-        """Get a cached contract address value
-
-        """
-        if not self._contract_address:
-            res = self.get_contract_address()
-            self._contract_address = res['address']
-
-        return self._contract_address
-
-    def get_contract_address(self):
-        """Get the contract address used for depositing, withdrawing, and posting orders
-
-        https://github.com/AuroraDAO/idex-api-docs#returncontractaddress
-
-        .. code:: python
-
-            trades = client.get_contract_address()
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                address: '0x2a0c0dbecc7e4d658f48e01e3fa353f44050c208'
-            }
-
-        :raises:  IdexResponseException,  IdexAPIException
-
-        """
-
-        return self._post('returnContractAddress')
-
-    # Trade Endpoints
-
-    def parse_from_currency_quantity(self, currency, quantity):
-        """Convert a quantity string to a float
-
-        :param currency: Name of currency e.g EOS
-        :type currency: string
-        :param quantity: Quantity value as string '3100000000000000000000'
-        :type quantity: string
-
-        :returns: decimal
-
-        """
-
-        currency_details = self.get_currency(currency)
-
-        return self._parse_from_currency_quantity(currency_details, quantity)
-
-    def convert_to_currency_quantity(self, currency, quantity):
-        """Convert a float quantity to the correct decimal places
-
-        :param currency: Name or address of currency e.g EOS or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
-        :type currency: string
-        :param quantity: Quantity value 4.234298924 prefer Decimal or string, int or float should work
-        :type quantity: Decimal, string, int, float
-
-        """
-        currency_details = self.get_currency(currency)
-
-        return self._convert_to_currency_quantity(currency_details, quantity)
-
-    @require_address
-    def create_order(self, token_buy, token_sell, price, quantity):
-        """Create a limit order
-
-        :param token_buy: The name or address of the token you will receive as a result of the trade e.g. ETH or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
-        :type token_buy: string
-        :param token_sell:  The name or address of the token you will lose as a result of the trade e.g. EOS or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
-        :type token_sell: string
-        :param price:  The price in token_sell you want to purchase the new token for
-        :type price: Decimal, string, int or float
-        :param quantity: The amount of token_buy you will receive when the order is fully filled
-        :type quantity: Decimal, string, int or float
-
-        .. code:: python
-
-            ticker = client.create_order(
-                'EOS',
-                'ETH',
-                '0.000123',
-                '31200.324')
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                orderNumber: 2101,
-                orderHash: '0x3fe808be7b5df3747e5534056e9ff45ead5b1fcace430d7b4092e5fcd7161e21',
-                price: '0.000129032258064516',
-                amount: '3100',
-                total: '0.4',
-                type: 'buy',
-                params: {
-                    tokenBuy: '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098',
-                    buyPrecision: 18,
-                    amountBuy: '3100000000000000000000',
-                    tokenSell: '0x0000000000000000000000000000000000000000',
-                    sellPrecision: 18,
-                    amountSell: '400000000000000000',
-                    expires: 100000,
-                    nonce: 1,
-                    user: '0x57b080554ebafc8b17f4a6fd090c18fc8c9188a0'
-                }
-            }
-
-        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
-
-        """
-
-        # convert buy and sell amounts based on decimals
-        price = self._num_to_decimal(price)
-        quantity = self._num_to_decimal(quantity)
-        sell_quantity = price * quantity
-        amount_buy = self.convert_to_currency_quantity(token_buy, quantity)
-        amount_sell = self.convert_to_currency_quantity(token_sell, sell_quantity)
-
-        return self.create_order_wei(token_buy, token_sell, amount_buy, amount_sell)
-
-    @require_address
-    @require_private_key
-    def create_order_wei(self, token_buy, token_sell, amount_buy, amount_sell):
-        """Create a limit order using buy and sell amounts as integer value precision matching that token
-
-        :param token_buy: The name or address of the token you will receive as a result of the trade e.g. ETH or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
-        :type token_buy: string
-        :param token_sell:  The name or address of the token you will lose as a result of the trade e.g. EOS or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
-        :type token_sell: string
-        :param amount_buy:  The amount of token_buy you will receive when the order is fully filled
-        :type amount_buy: Decimal, string
-        :param amount_sell: The amount of token_sell you are selling
-        :type amount_sell: Decimal, string
-
-        .. code:: python
-
-            ticker = client.create_order_gwei(
-                'EOS',
-                'ETH',
-                '3100000000000000000000',
-                '400000000000000000')
-
-        :returns: API Response
-
-        .. code-block:: python
-
-            {
-                orderNumber: 2101,
-                orderHash: '0x3fe808be7b5df3747e5534056e9ff45ead5b1fcace430d7b4092e5fcd7161e21',
-                price: '0.000129032258064516',
-                amount: '3100',
-                total: '0.4',
-                type: 'buy',
-                params: {
-                    tokenBuy: '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098',
-                    buyPrecision: 18,
-                    amountBuy: '3100000000000000000000',
-                    tokenSell: '0x0000000000000000000000000000000000000000',
-                    sellPrecision: 18,
-                    amountSell: '400000000000000000',
-                    expires: 100000,
-                    nonce: 1,
-                    user: '0x57b080554ebafc8b17f4a6fd090c18fc8c9188a0'
-                }
-            }
-
-        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
-
-        """
-
-        contract_address = self._get_contract_address()
-
-        buy_currency = self.get_currency(token_buy)
-        sell_currency = self.get_currency(token_sell)
-
-        hash_data = [
-            ['contractAddress', contract_address, 'address'],
-            ['tokenBuy', buy_currency['address'], 'address'],
-            ['amountBuy', amount_buy, 'uint256'],
-            ['tokenSell', sell_currency['address'], 'address'],
-            ['amountSell', amount_sell, 'uint256'],
-            ['expires', '10000', 'uint256'],
-            ['nonce', self._get_nonce(), 'uint256'],
-            ['address', self._wallet_address, 'address'],
-        ]
-
-        return self._post('order', True, hash_data=hash_data)
-
-    @require_address
-    @require_private_key
-    def create_trade(self, order_hash, token, amount):
-        """Make a trade
-
-        TODO: Allow multiple orders to be filled
-
-        :param order_hash: This is the raw hash of the order you are filling. The orderHash property of an order can be retrieved from the API calls which return orders, for higher security the has can be derived from the order parameters.
-        :type order_hash: string e.g ‘0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52’
-        :param token: The name or address of the token you are filling the order with. In the order it's the tokenBuy token
-        :type token: string or hex string e.g 'EOS' or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
-        :param amount: This is the amount of the order you are filling  e.g 0.2354
-        :type amount: Decimal, string, int or float
-
-        .. code:: python
-
-            trades = client.create_trade(
-                '0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52',
-                'ETH',
-                '1.23')
+        return self._get("wallets", sign_type=SignType.USER)
+
+    def get_balances(
+        self, wallet_address: Optional[str] = None, assets: Optional[List[str]] = None
+    ):
+        """Returns asset quantity information held by a wallet on the exchange.
+
+        This endpoint does not include balance information for funds held by a wallet outside of the exchange custody
+        contract.
 
         :returns: API Response
 
@@ -1413,102 +738,1489 @@ class Client(BaseClient):
 
             [
                 {
-                    amount: '0.07',
-                    date: '2017-10-13 16:25:36',
-                    total: '0.01',
-                    market: 'ETH_DVIP',
-                    type: 'buy',
-                    price: '7',
-                    orderHash: '0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52',
-                    uuid: '250d51a0-b033-11e7-9984-a9ab79bb8f35'
-                }
+                    "asset": "USDC",
+                    "quantity": "38192.94678100",
+                    "availableForTrade": "26710.66678121",
+                    "locked": "11482.28000000",
+                    "usdValue": "38188.22"
+                },
+                ...
             ]
-
-        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
 
         """
 
-        amount_trade = self.convert_to_currency_quantity(token, amount)
+        data: Dict[str, Any] = {"wallet": wallet_address or self.wallet_address}
+        if assets:
+            data["asset"] = assets
 
-        hash_data = [
-            ['orderHash', order_hash, 'address'],
-            ['amount', amount_trade, 'uint256'],
-            ['address', self._wallet_address, 'address'],
-            ['nonce', self._get_nonce(), 'uint256'],
-        ]
+        return self._get("balances", sign_type=SignType.USER, data=data)
 
-        return self._post('trade', True, hash_data=hash_data)
+    # Orders & Trade Endpoints
 
-    @require_address
-    @require_private_key
-    def cancel_order(self, order_hash):
-        """Cancel an order
+    def create_order(
+        self,
+        market: str,
+        order_type: OrderType,
+        order_side: OrderSide,
+        wallet_address: Optional[str] = None,
+        quantity: Optional[Union[float, Decimal]] = None,
+        quote_order_quantity: Optional[Union[float, Decimal]] = None,
+        price: Optional[str] = None,
+        stop_price: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        time_in_force: Optional[OrderTimeInForce] = None,
+        self_trade_prevention: Optional[OrderSelfTradePrevention] = None,
+        test: Optional[bool] = False,
+    ):
+        path = "orders"
+        if test:
+            path = "orders/test"
 
-        :param order_hash: The raw hash of the order you are cancelling
-        :type order_hash:
+        if time_in_force == OrderTimeInForce.FILL_OR_KILL:
+            assert self_trade_prevention == OrderSelfTradePrevention.CANCEL_NEWEST
 
-        .. code:: python
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+            "market": market,
+            "type": order_type.value,
+            "side": order_side.value,
+        }
+        if quantity:
+            data["quantity"] = format_quantity(quantity)
+        if quote_order_quantity:
+            data["quoteOrderQuantity"] = format_quantity(quote_order_quantity)
+        if price:
+            data["price"] = price
+        if stop_price:
+            data["stopPrice"] = stop_price
+        if client_order_id:
+            data["clientOrderId"] = client_order_id
+        if time_in_force:
+            data["timeInForce"] = time_in_force.value
+        if self_trade_prevention:
+            data["selfTradePrevention"] = self_trade_prevention.value
 
-            status = client.cancel_order('0xcfe4018c59e50e0e1964c979e6213ce5eb8c751cbc98a44251eb48a0985adc52')
+        return self._post(path, sign_type=SignType.TRADE, data=data)
+
+    def create_market_order(
+        self,
+        market: str,
+        order_side: OrderSide,
+        wallet_address: Optional[str] = None,
+        quantity: Optional[Union[float, Decimal]] = None,
+        quote_order_quantity: Optional[Union[float, Decimal]] = None,
+        client_order_id: Optional[str] = None,
+        self_trade_prevention: OrderSelfTradePrevention = OrderSelfTradePrevention.DECREMENT_AND_CANCEL,
+        test: Optional[bool] = False,
+    ):
+        return self.create_order(
+            market=market,
+            order_side=order_side,
+            wallet_address=wallet_address,
+            quantity=quantity,
+            quote_order_quantity=quote_order_quantity,
+            client_order_id=client_order_id,
+            order_type=OrderType.MARKET,
+            self_trade_prevention=self_trade_prevention,
+            test=test,
+        )
+
+    def create_limit_order(
+        self,
+        market: str,
+        order_side: OrderSide,
+        wallet_address: Optional[str] = None,
+        quantity: Optional[Union[float, Decimal]] = None,
+        quote_order_quantity: Optional[Union[float, Decimal]] = None,
+        price: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        time_in_force: OrderTimeInForce = OrderTimeInForce.GOOD_TILL_CANCEL,
+        self_trade_prevention: OrderSelfTradePrevention = OrderSelfTradePrevention.DECREMENT_AND_CANCEL,
+        test: Optional[bool] = False,
+    ):
+        return self.create_order(
+            market=market,
+            order_side=order_side,
+            wallet_address=wallet_address,
+            quantity=quantity,
+            price=price,
+            quote_order_quantity=quote_order_quantity,
+            client_order_id=client_order_id,
+            order_type=OrderType.LIMIT,
+            time_in_force=time_in_force,
+            self_trade_prevention=self_trade_prevention,
+            test=test,
+        )
+
+    def cancel_orders(
+        self,
+        wallet_address: Optional[str] = None,
+        order_id: Optional[str] = None,
+        market: Optional[str] = None,
+    ):
+        """Cancel a single open order, all open orders for a market, or all open orders placed by a wallet.
+
+        https://api-docs-v3.idex.io/?javascript#cancel-order
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    "orderId": "3a9ef9c0-a779-11ea-907d-23e999279287"
+                },
+                ...
+            ]
+        """
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+        }
+        if order_id:
+            data["orderId"] = order_id
+        if market:
+            data["market"] = market
+        return self._delete("orders", sign_type=SignType.TRADE, data=data)
+
+    def cancel_all_orders(self, wallet_address: Optional[str] = None):
+        """Cancel all open orders placed by a wallet.
+
+        https://api-docs-v3.idex.io/?javascript#cancel-order
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    "orderId": "3a9ef9c0-a779-11ea-907d-23e999279287"
+                },
+                ...
+            ]
+        """
+        return self.cancel_orders(wallet_address=wallet_address)
+
+    def cancel_all_market_orders(self, market: str, wallet_address: Optional[str] = None):
+        """Cancel all open orders for a market
+
+        https://api-docs-v3.idex.io/?javascript#cancel-order
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    "orderId": "3a9ef9c0-a779-11ea-907d-23e999279287"
+                },
+                ...
+            ]
+        """
+        return self.cancel_orders(wallet_address=wallet_address, market=market)
+
+    def cancel_order(self, order_id: str, wallet_address: Optional[str] = None):
+        """Cancel a single open order
+
+        https://api-docs-v3.idex.io/?javascript#cancel-order
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    "orderId": "3a9ef9c0-a779-11ea-907d-23e999279287"
+                },
+                ...
+            ]
+        """
+        return self.cancel_orders(wallet_address=wallet_address, order_id=order_id)
+
+    def get_orders(
+        self,
+        wallet_address: Optional[str] = None,
+        order_id: Optional[str] = None,
+        market: Optional[str] = None,
+        closed: Optional[bool] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        """Returns information about open and past orders.
+
+        https://api-docs-v3.idex.io/?javascript#get-orders
+
+        """
+
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+        }
+        if order_id:
+            data["orderId"] = order_id
+        if market:
+            data["market"] = market
+        if closed is not None:
+            data["closed"] = closed
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+        return self._get("orders", sign_type=SignType.USER, data=data)
+
+    def get_open_orders(
+        self,
+        wallet_address: Optional[str] = None,
+        order_id: Optional[str] = None,
+        market: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        self.get_orders(
+            wallet_address,
+            order_id,
+            market,
+            closed=False,
+            start=start,
+            end=end,
+            limit=limit,
+            from_id=from_id,
+        )
+
+    def get_order(self, order_id: str, wallet_address: Optional[str] = None):
+        """Returns information about an order
+
+        https://api-docs-v3.idex.io/#get-orders
+
+        """
+        return self.get_orders(wallet_address=wallet_address, order_id=order_id)
+
+    def get_fills(
+        self,
+        wallet_address: Optional[str] = None,
+        fill_id: Optional[str] = None,
+        market: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        """Returns information about trades involving orders placed by a wallet
+
+        https://api-docs-v3.idex.io/#get-fills
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    "fillId": "974480d0-a776-11ea-895b-bfcbb5bdaa50",
+                    "price": "202.00150000",
+                    "quantity": "3.78008801",
+                    "quoteQuantity": "763.58344815",
+                    "orderBookQuantity": "3.50000000",
+                    "orderBookQuoteQuantity": "707.00700000",
+                    "poolQuantity": "0.28008801",
+                    "poolQuoteQuantity": "56.57644815",
+                    "time": 1590394200000,
+                    "makerSide": "sell",
+                    "sequence": 981372,
+                    "market": "ETH-USDC",
+                    "orderId": "92782120-a775-11ea-aa55-4da1cc97a06d",
+                    "side": "buy",
+                    "fee": "0.00756017",
+                    "feeAsset": "ETH",
+                    "liquidity": "taker",
+                    "type": "hybrid",
+                    "txId": "0x01d28c33271cf1dd0eb04249617d3092f24bd9bad77ffb57a0316c3ce5425158",
+                    "txStatus": "mined"
+                },
+                ...
+            ]
+
+        """
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+        }
+        if fill_id:
+            data["fillId"] = fill_id
+        if market:
+            data["market"] = market
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+        return self._get("fills", sign_type=SignType.USER, data=data)
+
+    def get_fill(
+        self,
+        fill_id: str,
+        wallet_address: Optional[str] = None,
+    ):
+        """Returns information about a trade placed by a wallet
+
+        https://api-docs-v3.idex.io/#get-fills
+
+        """
+        return self.get_fills(wallet_address=wallet_address, fill_id=fill_id)
+
+    # deposit endpoints
+
+    def deposit_funds(self):
+        raise NotImplementedError()
+
+    def get_deposits(
+        self,
+        wallet_address: Optional[str] = None,
+        deposit_id: Optional[str] = None,
+        asset: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        """Returns information about deposits made by a wallet.
+
+        https://api-docs-v3.idex.io/#get-deposits
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    "depositId": "57f88930-a6c7-11ea-9d9c-6b2dc98dcc67",
+                    "asset": "USDC",
+                    "quantity": "25000.00000000",
+                    "txId": "0xf3299b8222b2977fabddcf2d06e2da6303d99c976ed371f9749cb61514078a07",
+                    "txTime": 1590393900000,
+                    "confirmationTime": 1590394050000
+                },
+                ...
+            ]
+        """
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+        }
+        if deposit_id:
+            data["depositId"] = deposit_id
+        if asset:
+            data["asset"] = asset
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+        return self._get("fills", sign_type=SignType.USER, data=data)
+
+    def get_deposit(
+        self,
+        deposit_id: str,
+        wallet_address: Optional[str] = None,
+    ):
+        """Returns information about a deposit made by a wallet.
+
+        https://api-docs-v3.idex.io/#get-deposits
+        """
+
+        return self.get_deposits(wallet_address=wallet_address, deposit_id=deposit_id)
+
+    def get_deposit_for_asset(
+        self,
+        asset: str,
+        wallet_address: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        """Returns information about deposits for an asset made by a wallet.
+
+        https://api-docs-v3.idex.io/#get-deposits
+        """
+        return self.get_deposits(
+            wallet_address=wallet_address,
+            asset=asset,
+            start=start,
+            end=end,
+            limit=limit,
+            from_id=from_id,
+        )
+
+    # Withdrawal endpoints
+
+    def withdraw_funds(
+        self,
+        quantity: float,
+        wallet_address: Optional[str] = None,
+        asset: Optional[str] = None,
+        asset_contract_address: Optional[str] = None,
+    ):
+        """Withdraw funds from the exchange.
+
+        https://api-docs-v3.idex.io/#withdraw-funds
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    "withdrawalId": "3ac67790-a77c-11ea-ae39-b3356c7170f3",
+                    "asset": "USDC",
+                    "assetContractAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+                    "quantity": "25000.00000000",
+                    "time": 1590394800000,
+                    "fee": "0.14332956",
+                    "txId": "0xf215d7a6d20f6dda52cdb3a3332aa5de898dead06f92f4d26523f140ae5dcc5c",
+                    "txStatus": "mined"
+                },
+                ...
+            ]
+
+        """
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+            "quantity": format_quantity(quantity),
+        }
+        if asset:
+            data["asset"] = asset
+        if asset_contract_address:
+            data["assetContractAddress"] = asset_contract_address
+        return self._post("withdrawals", sign_type=SignType.TRADE, data=data)
+
+    def get_withdrawals(
+        self,
+        wallet_address: Optional[str] = None,
+        withdrawal_id: Optional[str] = None,
+        asset: Optional[str] = None,
+        asset_contract_address: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        """Returns information about withdrawals to a wallet.
+
+        https://api-docs-v3.idex.io/#get-withdrawals
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    "withdrawalId": "3ac67790-a77c-11ea-ae39-b3356c7170f3",
+                    "asset": "USDC",
+                    "assetContractAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+                    "quantity": "25000.00000000",
+                    "time": 1590394800000,
+                    "fee": "0.14332956",
+                    "txId": "0xf215d7a6d20f6dda52cdb3a3332aa5de898dead06f92f4d26523f140ae5dcc5c",
+                    "txStatus": "mined"
+                },
+                ...
+            ]
+
+
+        """
+        data: Dict[str, Any] = {"wallet": wallet_address or self.wallet_address}
+        if withdrawal_id:
+            data["withdrawalId"] = withdrawal_id
+        if asset:
+            data["asset"] = asset
+        if asset_contract_address:
+            data["assetContractAddress"] = asset_contract_address
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+
+        return self._get("withdrawals", sign_type=SignType.USER, data=data)
+
+    def get_withdrawal(
+        self,
+        withdrawal_id: str,
+        wallet_address: Optional[str] = None,
+    ):
+        """Returns information about a withdrawal to a wallet.
+
+        https://api-docs-v3.idex.io/#get-withdrawals
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            [
+                {
+                    "withdrawalId": "3ac67790-a77c-11ea-ae39-b3356c7170f3",
+                    "asset": "USDC",
+                    "assetContractAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+                    "quantity": "25000.00000000",
+                    "time": 1590394800000,
+                    "fee": "0.14332956",
+                    "txId": "0xf215d7a6d20f6dda52cdb3a3332aa5de898dead06f92f4d26523f140ae5dcc5c",
+                    "txStatus": "mined"
+                },
+                ...
+            ]
+
+        """
+        return self.get_withdrawals(wallet_address=wallet_address, withdrawal_id=withdrawal_id)
+
+    # Liquidity Endpoints
+
+    def get_liquidity_pools(
+        self,
+        market: Optional[str] = None,
+        token_a: Optional[str] = None,
+        token_b: Optional[str] = None,
+    ):
+        """Returns information about liquidity pools supported by the exchange
+
+        https://api-docs-v3.idex.io/#get-liquidity-pools
 
         :returns: API Response
 
         .. code-block:: python
 
             {
-                success: 1
+                "tokenA": "0x0000000000000000000000000000000000000000",
+                "tokenB": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+                "reserveA": "28237086108150291001205",
+                "reserveB": "5647417229283",
+                "liquidityToken": "0x041B70bf48cfF1a7d3E87297D9F13772f11ed764",
+                "totalLiquidity": "399332701245168000",
+                "reserveUsd": "11294834.44",
+                "market": "ETH-USDC"
             }
-
-        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
 
         """
 
-        hash_data = [
-            ['orderHash', order_hash, 'address'],
-            ['nonce', self._get_nonce(), 'uint256'],
-        ]
+        data: Dict[str, Any] = {}
+        if market:
+            data["market"] = market
+        if token_a:
+            data["tokenA"] = self.asset_to_address(token_a)
+        if token_b:
+            data["tokenB"] = self.asset_to_address(token_b)
+        return self._get("liquidityPools", data=data)
 
-        json_data = {
-            'address': self._wallet_address
-        }
+    def add_liquidity(
+        self,
+        token_a: str,
+        token_b: str,
+        amount_a: float,
+        amount_b: float,
+        amount_a_min: float,
+        amount_b_min: float,
+        to_wallet: str,
+        wallet_address: Optional[str] = None,
+    ):
+        """Add liquidity to a hybrid liquidity pool from assets held by a wallet on the exchange
 
-        return self._post('cancel', True, hash_data=hash_data, json=json_data)
-
-    # Withdraw Endpoints
-
-    @require_address
-    @require_private_key
-    def withdraw(self, amount, token):
-        """Withdraw funds from IDEX to your wallet address
-
-        :param amount:  The amount of token you want to withdraw
-        :type amount: Decimal, string
-        :param token: The name or address of the token you are withdrawing. In the order it's the tokenBuy token
-        :type token: string or hex string e.g 'EOS' or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
-
-        .. code:: python
-
-            status = client.withdraw('1000.32', 'EOS')
+        https://api-docs-v3.idex.io/#add-liquidity
 
         :returns: API Response
 
-        :raises:  IdexWalletAddressNotFoundException, IdexPrivateKeyNotFoundException, IdexResponseException,  IdexAPIException
+        .. code-block:: python
+
+            {
+                "liquidityAdditionId": "f3fd2683-26e6-4475-88b5-3eeb088acd1f",
+                "tokenA": "0x0000000000000000000000000000000000000000",
+                "tokenB": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+                "amountA": "2499999996612190000",
+                "amountB": "500000000",
+                "liquidity": "35355339001212",
+                "time": "1631656966432",
+                "initiatingTxId": null,
+                "feeTokenA": "1260000000000000",
+                "feeTokenB": "252000",
+                "txId": "0x39518147124286b97f4803171732aaa1bffea15f12b0474e7ab386bf5cdeda56",
+                "txStatus": "mined"
+            }
 
         """
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+            "tokenA": self.asset_to_address(token_a),
+            "tokenB": self.asset_to_address(token_b),
+            "amountADesired": convert_to_token_quantity(self.get_asset(token_a), amount_a),
+            "amountBDesired": convert_to_token_quantity(self.get_asset(token_b), amount_b),
+            "amountAMin": convert_to_token_quantity(self.get_asset(token_a), amount_a_min),
+            "amountBMin": convert_to_token_quantity(self.get_asset(token_b), amount_b_min),
+            "to": to_wallet,
+        }
+        return self._post("addLiquidity", sign_type=SignType.TRADE, data=data)
 
-        contract_address = self._get_contract_address()
+    def remove_liquidity(
+        self,
+        token_a: str,
+        token_b: str,
+        liquidity: float,
+        amount_a_min: float,
+        amount_b_min: float,
+        to_wallet: str,
+        wallet_address: Optional[str] = None,
+    ):
+        """Remove liquidity from a hybrid liquidity pool using liquidity provider (LP) tokens held by a wallet on the
+        exchange
 
-        currency = self.get_currency(token)
+        https://api-docs-v3.idex.io/#remove-liquidity
 
-        # convert amount
-        amount = self.convert_to_currency_quantity(token, amount)
+        :returns: API Response
 
-        hash_data = [
-            ['contractAddress', contract_address, 'address'],
-            ['token', currency['address'], 'address'],
-            ['amount', amount, 'uint256'],
-            ['address', self._wallet_address, 'address'],
-            ['nonce', self._get_nonce(), 'uint256'],
-        ]
+        .. code-block:: python
 
-        return self._post('withdraw', True, hash_data=hash_data)
+            {
+                "liquidityRemovalId": "e87083db-5f64-4fd8-a1ad-1b57a84840f7",
+                "tokenA": "0x0000000000000000000000000000000000000000",
+                "tokenB": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+                "amountA": "2499999996612190000",
+                "amountB": "500000000",
+                "liquidity": "35355339001212",
+                "time": "1631656967341",
+                "initiatingTxId": null,
+                "feeTokenA": "1207500000000000",
+                "feeTokenB": "241500",
+                "txId": "0xfe48b79028a61d971672172874304283aaa6780ad38b9dc2d76c28fe7fd03002",
+                "txStatus": "mined"
+            }
+
+        """
+        token_a_details = self.get_asset(token_a)
+        token_b_details = self.get_asset(token_b)
+        lp_token_details = self.get_asset(
+            f"ILP-{token_a_details['symbol']}-{token_b_details['symbol']}"
+        )
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+            "tokenA": self.asset_to_address(token_a),
+            "tokenB": self.asset_to_address(token_b),
+            "liquidity": convert_to_token_quantity(lp_token_details, liquidity),
+            "amountAMin": convert_to_token_quantity(token_a_details, amount_a_min),
+            "amountBMin": convert_to_token_quantity(token_b_details, amount_b_min),
+            "to": to_wallet,
+        }
+        return self._post("removeLiquidity", sign_type=SignType.TRADE, data=data)
+
+    def get_liquidity_additions(
+        self,
+        wallet_address: Optional[str] = None,
+        liquidity_addition_id: Optional[str] = None,
+        initiating_tx_id: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        """Returns information about liquidity additions from a wallet.
+
+        https://api-docs-v3.idex.io/?javascript#get-liquidity-additions
+
+        """
+        data: Dict[str, Any] = {"wallet": wallet_address or self.wallet_address}
+        if liquidity_addition_id:
+            data["liquidityAdditionId"] = liquidity_addition_id
+        if initiating_tx_id:
+            data["initiatingTxId"] = initiating_tx_id
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+        return self._get("liquidityAdditions", sign_type=SignType.USER, data=data)
+
+    def get_liquidity_removals(
+        self,
+        wallet_address: Optional[str] = None,
+        liquidity_removal_id: Optional[str] = None,
+        initiating_tx_id: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        """Returns information about liquidity additions from a wallet.
+
+        https://api-docs-v3.idex.io/?javascript#get-liquidity-additions
+
+        """
+        data: Dict[str, Any] = {"wallet": wallet_address or self.wallet_address}
+        if liquidity_removal_id:
+            data["liquidityRemovalId"] = liquidity_removal_id
+        if initiating_tx_id:
+            data["initiatingTxId"] = initiating_tx_id
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+        return self._get("liquidityRemovals", sign_type=SignType.USER, data=data)
+
+    # Websocket endpoints
+
+    def get_ws_auth_token(self, wallet_address: Optional[str] = None):
+        """Returns a single-use authentication token for access to private subscriptions in the WebSocket API.
+
+        https://api-docs-v3.idex.io/#get-authentication-token
+
+        :returns: API Response
+
+        .. code-block:: python
+
+            {
+                "token": "<WebSocket authentication token>"
+            }
+
+        """
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+        }
+        return self._get("wsToken", sign_type=SignType.USER, data=data)
+
+
+class AsyncClient(BaseClient):
+    @classmethod
+    async def create(
+        cls,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+        private_key: Optional[str] = None,
+        requests_params=None,
+        sandbox: bool = False,
+    ):
+
+        self = AsyncClient(api_key, api_secret, private_key, requests_params, sandbox)
+
+        return self
+
+    def _init_session(self):
+
+        loop = asyncio.get_event_loop()
+        session = aiohttp.ClientSession(loop=loop, headers=self._get_headers())  # type: ignore
+
+        return session
+
+    async def _request(
+        self, method: str, path: str, sign_type: Optional[SignType] = None, **kwargs
+    ):
+
+        kwargs = self._get_request_kwargs(path, method, sign_type, **kwargs)
+        uri = self._create_uri(path)
+
+        print(method)
+        print(kwargs)
+        print(uri)
+
+        async with getattr(self.session, method)(uri, **kwargs) as response:
+            self._last_response = response
+            return await self._handle_response(response)
+
+    @staticmethod
+    async def _handle_response(response):
+        """Internal helper for handling API responses from the Quoine server.
+        Raises the appropriate exceptions when necessary; otherwise, returns the
+        response.
+        """
+        if not str(response.status).startswith("2"):
+            raise IdexAPIException(response, response.status, await response.text())
+        try:
+            res = await response.json()
+            return res
+        except ValueError:
+            txt = await response.text()
+            raise IdexRequestException("Invalid Response: {}".format(txt))
+
+    async def _get(self, path: str, sign_type: Optional[SignType] = None, **kwargs):
+        return await self._request("get", path, sign_type, **kwargs)
+
+    async def _post(self, path: str, sign_type: Optional[SignType] = None, **kwargs):
+        return await self._request("post", path, sign_type, **kwargs)
+
+    async def _put(self, path: str, sign_type: Optional[SignType] = None, **kwargs):
+        return await self._request("put", path, sign_type, **kwargs)
+
+    async def _delete(self, path: str, sign_type: Optional[SignType] = None, **kwargs):
+        return await self._request("delete", path, sign_type, **kwargs)
+
+    async def ping(self):
+        return await self._get("ping")
+
+    ping.__doc__ = Client.ping.__doc__
+
+    async def get_server_time(self) -> Dict:
+        return await self._get("time")
+
+    get_server_time.__doc__ = Client.get_server_time.__doc__
+
+    async def get_exchange(self):
+        return await self._get("exchange")
+
+    get_exchange.__doc__ = Client.get_exchange.__doc__
+
+    async def get_assets(self):
+        return await self._get("assets")
+
+    get_assets.__doc__ = Client.get_assets.__doc__
+
+    async def get_asset(self, asset: str):
+        if asset not in self._asset_addresses:
+            self._asset_addresses = await self.get_assets()
+
+        res = None
+        if asset[:2] == "0x":
+            for token, c in self._asset_addresses.items():
+                if c["contractAddress"] == asset:
+                    res = c
+                    break
+            if res is None:
+                raise IdexCurrencyNotFoundException(asset)
+        else:
+            if asset not in self._asset_addresses:
+                raise IdexCurrencyNotFoundException(asset)
+            res = self._asset_addresses[asset]
+
+        return res
+
+    get_asset.__doc__ = Client.get_asset.__doc__
+
+    async def asset_to_address(self, asset: str):
+        if asset.startswith("0x"):
+            return asset
+        asset_details = await self.get_asset(asset)
+        return asset_details["contractAddress"]
+
+    asset_to_address.__doc__ = Client.asset_to_address.__doc__
+
+    async def get_markets(self):
+        return await self._get("markets")
+
+    get_markets.__doc__ = Client.get_markets.__doc__
+
+    # Market Endpoints
+
+    async def get_tickers(self, market: Optional[str] = None) -> List[Dict]:
+        data: Dict[str, Any] = {}
+        if market:
+            data["market"] = market
+
+        return await self._get("tickers", data=data)
+
+    get_tickers.__doc__ = Client.get_tickers.__doc__
+
+    async def get_ticker(self, market):
+        return (await self.get_tickers(market))[0]
+
+    get_ticker.__doc__ = Client.get_ticker.__doc__
+
+    async def get_candles(
+        self,
+        market: str,
+        interval: CandleInterval,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+    ):
+        data: Dict[str, Any] = {"market": market, "interval": interval.value}
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+
+        return await self._get("candles", data=data)
+
+    get_candles.__doc__ = Client.get_candles.__doc__
+
+    async def get_trades(
+        self,
+        market: str,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {"market": market}
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+
+        return await self._get("trades", data=data)
+
+    get_trades.__doc__ = Client.get_trades.__doc__
+
+    async def get_order_book(
+        self,
+        market: str,
+        level: Optional[OrderbookLevel] = OrderbookLevel.LEVEL_1,
+        limit: Optional[int] = 50,
+        limit_order_only: Optional[bool] = False,
+    ):
+        data: Dict[str, Any] = {"market": market}
+        if level:
+            data["level"] = level.value
+        if limit:
+            data["limit"] = limit
+        if limit_order_only:
+            data["limit_order_only"] = True
+
+        return await self._get("orderbook", data=data)
+
+    get_order_book.__doc__ = Client.get_order_book.__doc__
+
+    # User Data Endpoints
+
+    async def get_account(self):
+        return await self._get("user", sign_type=SignType.USER)
+
+    get_account.__doc__ = Client.get_account.__doc__
+
+    async def associate_wallet(self, wallet_address: str):
+        return await self._get("wallets", sign_type=SignType.TRADE, data={"wallet": wallet_address})
+
+    associate_wallet.__doc__ = Client.associate_wallet.__doc__
+
+    async def get_wallets(self):
+        return await self._get("wallets", sign_type=SignType.USER)
+
+    get_wallets.__doc__ = Client.get_wallets.__doc__
+
+    async def get_balances(
+        self, wallet_address: Optional[str] = None, assets: Optional[List[str]] = None
+    ):
+        data: Dict[str, Any] = {"wallet": wallet_address or self.wallet_address}
+        if assets:
+            data["asset"] = assets
+
+        return await self._get("balances", sign_type=SignType.USER, data=data)
+
+    get_balances.__doc__ = Client.get_balances.__doc__
+
+    # Orders & Trade Endpoints
+
+    async def create_order(
+        self,
+        market: str,
+        order_type: OrderType,
+        order_side: OrderSide,
+        wallet_address: Optional[str] = None,
+        quantity: Optional[Union[float, Decimal]] = None,
+        quote_order_quantity: Optional[Union[float, Decimal]] = None,
+        price: Optional[str] = None,
+        stop_price: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        time_in_force: Optional[OrderTimeInForce] = None,
+        self_trade_prevention: Optional[OrderSelfTradePrevention] = None,
+        test: Optional[bool] = False,
+    ):
+        path = "orders"
+        if test:
+            path = "orders/test"
+
+        if time_in_force == OrderTimeInForce.FILL_OR_KILL:
+            assert self_trade_prevention == OrderSelfTradePrevention.CANCEL_NEWEST
+
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+            "market": market,
+            "type": order_type.value,
+            "side": order_side.value,
+        }
+        if quantity:
+            data["quantity"] = format_quantity(quantity)
+        if quote_order_quantity:
+            data["quoteOrderQuantity"] = format_quantity(quote_order_quantity)
+        if price:
+            data["price"] = price
+        if stop_price:
+            data["stopPrice"] = stop_price
+        if client_order_id:
+            data["clientOrderId"] = client_order_id
+        if time_in_force:
+            data["timeInForce"] = time_in_force.value
+        if self_trade_prevention:
+            data["selfTradePrevention"] = self_trade_prevention.value
+
+        return await self._post(path, sign_type=SignType.TRADE, data=data)
+
+    create_order.__doc__ = Client.create_order.__doc__
+
+    async def create_market_order(
+        self,
+        market: str,
+        order_side: OrderSide,
+        wallet_address: Optional[str] = None,
+        quantity: Optional[Union[float, Decimal]] = None,
+        quote_order_quantity: Optional[Union[float, Decimal]] = None,
+        client_order_id: Optional[str] = None,
+        self_trade_prevention: OrderSelfTradePrevention = OrderSelfTradePrevention.DECREMENT_AND_CANCEL,
+        test: Optional[bool] = False,
+    ):
+        return await self.create_order(
+            market=market,
+            order_side=order_side,
+            wallet_address=wallet_address,
+            quantity=quantity,
+            quote_order_quantity=quote_order_quantity,
+            client_order_id=client_order_id,
+            order_type=OrderType.MARKET,
+            self_trade_prevention=self_trade_prevention,
+            test=test,
+        )
+
+    create_market_order.__doc__ = Client.create_market_order.__doc__
+
+    async def create_limit_order(
+        self,
+        market: str,
+        order_side: OrderSide,
+        wallet_address: Optional[str] = None,
+        quantity: Optional[Union[float, Decimal]] = None,
+        quote_order_quantity: Optional[Union[float, Decimal]] = None,
+        price: Optional[str] = None,
+        client_order_id: Optional[str] = None,
+        time_in_force: OrderTimeInForce = OrderTimeInForce.GOOD_TILL_CANCEL,
+        self_trade_prevention: OrderSelfTradePrevention = OrderSelfTradePrevention.DECREMENT_AND_CANCEL,
+        test: Optional[bool] = False,
+    ):
+        return await self.create_order(
+            market=market,
+            order_side=order_side,
+            wallet_address=wallet_address,
+            quantity=quantity,
+            price=price,
+            quote_order_quantity=quote_order_quantity,
+            client_order_id=client_order_id,
+            order_type=OrderType.LIMIT,
+            time_in_force=time_in_force,
+            self_trade_prevention=self_trade_prevention,
+            test=test,
+        )
+
+    create_limit_order.__doc__ = Client.create_limit_order.__doc__
+
+    async def cancel_orders(
+        self,
+        wallet_address: Optional[str] = None,
+        order_id: Optional[str] = None,
+        market: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+        }
+        if order_id:
+            data["orderId"] = order_id
+        if market:
+            data["market"] = market
+        return await self._delete("orders", sign_type=SignType.TRADE, data=data)
+
+    cancel_orders.__doc__ = Client.cancel_orders.__doc__
+
+    async def cancel_all_orders(self, wallet_address: Optional[str] = None):
+        return self.cancel_orders(wallet_address=wallet_address)
+
+    cancel_all_orders.__doc__ = Client.cancel_all_orders.__doc__
+
+    async def cancel_all_market_orders(self, market: str, wallet_address: Optional[str] = None):
+        return await self.cancel_orders(wallet_address=wallet_address, market=market)
+
+    cancel_all_market_orders.__doc__ = Client.cancel_all_market_orders.__doc__
+
+    async def cancel_order(self, order_id: str, wallet_address: Optional[str] = None):
+        return await self.cancel_orders(wallet_address=wallet_address, order_id=order_id)
+
+    cancel_order.__doc__ = Client.cancel_order.__doc__
+
+    async def get_orders(
+        self,
+        wallet_address: Optional[str] = None,
+        order_id: Optional[str] = None,
+        market: Optional[str] = None,
+        closed: Optional[bool] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+        }
+        if order_id:
+            data["orderId"] = order_id
+        if market:
+            data["market"] = market
+        if closed is not None:
+            data["closed"] = closed
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+        return await self._get("orders", sign_type=SignType.USER, data=data)
+
+    get_orders.__doc__ = Client.get_orders.__doc__
+
+    async def get_open_orders(
+        self,
+        wallet_address: Optional[str] = None,
+        order_id: Optional[str] = None,
+        market: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        return await self.get_orders(
+            wallet_address,
+            order_id,
+            market,
+            closed=False,
+            start=start,
+            end=end,
+            limit=limit,
+            from_id=from_id,
+        )
+
+    get_open_orders.__doc__ = Client.get_open_orders.__doc__
+
+    async def get_order(self, order_id: str, wallet_address: Optional[str] = None):
+        return await self.get_orders(wallet_address=wallet_address, order_id=order_id)
+
+    get_order.__doc__ = Client.get_order.__doc__
+
+    async def get_fills(
+        self,
+        wallet_address: Optional[str] = None,
+        fill_id: Optional[str] = None,
+        market: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+        }
+        if fill_id:
+            data["fillId"] = fill_id
+        if market:
+            data["market"] = market
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+        return await self._get("fills", sign_type=SignType.USER, data=data)
+
+    get_fills.__doc__ = Client.get_fills.__doc__
+
+    async def get_fill(
+        self,
+        fill_id: str,
+        wallet_address: Optional[str] = None,
+    ):
+        return await self.get_fills(wallet_address=wallet_address, fill_id=fill_id)
+
+    get_fill.__doc__ = Client.get_fill.__doc__
+
+    # deposit endpoints
+
+    async def deposit_funds(self):
+        raise NotImplementedError()
+
+    deposit_funds.__doc__ = Client.deposit_funds.__doc__
+
+    async def get_deposits(
+        self,
+        wallet_address: Optional[str] = None,
+        deposit_id: Optional[str] = None,
+        asset: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+        }
+        if deposit_id:
+            data["depositId"] = deposit_id
+        if asset:
+            data["asset"] = asset
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+        return await self._get("fills", sign_type=SignType.USER, data=data)
+
+    get_deposits.__doc__ = Client.get_deposits.__doc__
+
+    async def get_deposit(
+        self,
+        deposit_id: str,
+        wallet_address: Optional[str] = None,
+    ):
+        return await self.get_deposits(wallet_address=wallet_address, deposit_id=deposit_id)
+
+    get_deposit.__doc__ = Client.get_deposit.__doc__
+
+    async def get_deposit_for_asset(
+        self,
+        asset: str,
+        wallet_address: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        return await self.get_deposits(
+            wallet_address=wallet_address,
+            asset=asset,
+            start=start,
+            end=end,
+            limit=limit,
+            from_id=from_id,
+        )
+
+    get_deposit_for_asset.__doc__ = Client.get_deposit_for_asset.__doc__
+
+    # Withdrawal endpoints
+
+    async def withdraw_funds(
+        self,
+        quantity: float,
+        wallet_address: Optional[str] = None,
+        asset: Optional[str] = None,
+        asset_contract_address: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+            "quantity": format_quantity(quantity),
+        }
+        if asset:
+            data["asset"] = asset
+        if asset_contract_address:
+            data["assetContractAddress"] = asset_contract_address
+        return await self._post("withdrawals", sign_type=SignType.TRADE, data=data)
+
+    withdraw_funds.__doc__ = Client.withdraw_funds.__doc__
+
+    async def get_withdrawals(
+        self,
+        wallet_address: Optional[str] = None,
+        withdrawal_id: Optional[str] = None,
+        asset: Optional[str] = None,
+        asset_contract_address: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {"wallet": wallet_address or self.wallet_address}
+        if withdrawal_id:
+            data["withdrawalId"] = withdrawal_id
+        if asset:
+            data["asset"] = asset
+        if asset_contract_address:
+            data["assetContractAddress"] = asset_contract_address
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+
+        return await self._get("withdrawals", sign_type=SignType.USER, data=data)
+
+    get_withdrawals.__doc__ = Client.get_withdrawals.__doc__
+
+    async def get_withdrawal(
+        self,
+        withdrawal_id: str,
+        wallet_address: Optional[str] = None,
+    ):
+
+        return await self.get_withdrawals(
+            wallet_address=wallet_address, withdrawal_id=withdrawal_id
+        )
+
+    get_withdrawal.__doc__ = Client.get_withdrawal.__doc__
+
+    # Liquidity Endpoints
+
+    async def get_liquidity_pools(
+        self,
+        market: Optional[str] = None,
+        token_a: Optional[str] = None,
+        token_b: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {}
+        if market:
+            data["market"] = market
+        if token_a:
+            data["tokenA"] = self.asset_to_address(token_a)
+        if token_b:
+            data["tokenB"] = self.asset_to_address(token_b)
+        return await self._get("liquidityPools", data=data)
+
+    get_liquidity_pools.__doc__ = Client.get_liquidity_pools.__doc__
+
+    async def add_liquidity(
+        self,
+        token_a: str,
+        token_b: str,
+        amount_a: float,
+        amount_b: float,
+        amount_a_min: float,
+        amount_b_min: float,
+        to_wallet: str,
+        wallet_address: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+            "tokenA": await self.asset_to_address(token_a),
+            "tokenB": await self.asset_to_address(token_b),
+            "amountADesired": convert_to_token_quantity(self.get_asset(token_a), amount_a),
+            "amountBDesired": convert_to_token_quantity(self.get_asset(token_b), amount_b),
+            "amountAMin": convert_to_token_quantity(self.get_asset(token_a), amount_a_min),
+            "amountBMin": convert_to_token_quantity(self.get_asset(token_b), amount_b_min),
+            "to": to_wallet,
+        }
+        return await self._post("addLiquidity", sign_type=SignType.TRADE, data=data)
+
+    add_liquidity.__doc__ = Client.add_liquidity.__doc__
+
+    async def remove_liquidity(
+        self,
+        token_a: str,
+        token_b: str,
+        liquidity: float,
+        amount_a_min: float,
+        amount_b_min: float,
+        to_wallet: str,
+        wallet_address: Optional[str] = None,
+    ):
+        token_a_details = await self.get_asset(token_a)
+        token_b_details = await self.get_asset(token_b)
+        lp_token_details = await self.get_asset(
+            f"ILP-{token_a_details['symbol']}-{token_b_details['symbol']}"
+        )
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+            "tokenA": await self.asset_to_address(token_a),
+            "tokenB": await self.asset_to_address(token_b),
+            "liquidity": convert_to_token_quantity(lp_token_details, liquidity),
+            "amountAMin": convert_to_token_quantity(token_a_details, amount_a_min),
+            "amountBMin": convert_to_token_quantity(token_b_details, amount_b_min),
+            "to": to_wallet,
+        }
+        return await self._post("removeLiquidity", sign_type=SignType.TRADE, data=data)
+
+    remove_liquidity.__doc__ = Client.remove_liquidity.__doc__
+
+    async def get_liquidity_additions(
+        self,
+        wallet_address: Optional[str] = None,
+        liquidity_addition_id: Optional[str] = None,
+        initiating_tx_id: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {"wallet": wallet_address or self.wallet_address}
+        if liquidity_addition_id:
+            data["liquidityAdditionId"] = liquidity_addition_id
+        if initiating_tx_id:
+            data["initiatingTxId"] = initiating_tx_id
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+        return await self._get("liquidityAdditions", sign_type=SignType.USER, data=data)
+
+    get_liquidity_additions.__doc__ = Client.get_liquidity_additions.__doc__
+
+    async def get_liquidity_removals(
+        self,
+        wallet_address: Optional[str] = None,
+        liquidity_removal_id: Optional[str] = None,
+        initiating_tx_id: Optional[str] = None,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        limit: Optional[int] = 50,
+        from_id: Optional[str] = None,
+    ):
+        data: Dict[str, Any] = {"wallet": wallet_address or self.wallet_address}
+        if liquidity_removal_id:
+            data["liquidityRemovalId"] = liquidity_removal_id
+        if initiating_tx_id:
+            data["initiatingTxId"] = initiating_tx_id
+        if start:
+            data["start"] = start
+        if end:
+            data["end"] = end
+        if limit:
+            data["limit"] = limit
+        if from_id:
+            data["fromId"] = from_id
+        return await self._get("liquidityRemovals", sign_type=SignType.USER, data=data)
+
+    get_liquidity_removals.__doc__ = Client.get_liquidity_removals.__doc__
+
+    # Websocket endpoints
+
+    async def get_ws_auth_token(self, wallet_address: Optional[str] = None):
+        data: Dict[str, Any] = {
+            "wallet": wallet_address or self.wallet_address,
+        }
+        return await self._get("wsToken", sign_type=SignType.USER, data=data)
+
+    get_ws_auth_token.__doc__ = Client.get_ws_auth_token.__doc__

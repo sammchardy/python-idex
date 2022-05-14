@@ -36,7 +36,7 @@ The exception provides access to the
 .. code:: python
 
     try:
-        client.get_currencies()
+        client.get_assets()
     except IdexAPIException as e:
         print(e.status_code)
         print(e.message)

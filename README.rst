@@ -1,5 +1,5 @@
 =============================
-Welcome to python-idex v1.0.0
+Welcome to python-idex v3.0.0
 =============================
 
 .. image:: https://img.shields.io/pypi/v/python-idex.svg
@@ -20,7 +20,7 @@ Welcome to python-idex v1.0.0
 .. image:: https://img.shields.io/pypi/pyversions/python-idex.svg
     :target: https://pypi.python.org/pypi/python-idex
 
-This is an unofficial Python wrapper for the `IDEX exchanges REST API v1 <https://github.com/AuroraDAO/idex-api-docs>`_. I am in no way affiliated with IDEX, use at your own risk.
+This is an unofficial Python wrapper for the `IDEX exchanges REST API v3 <https://api-docs-v3.idex.io/>`_. I am in no way affiliated with IDEX, use at your own risk.
 
 PyPi
   https://pypi.python.org/pypi/python-idex
@@ -36,22 +36,19 @@ Features
 --------
 
 - Implementation of all REST endpoints except for deposit.
-- Helper functions for your wallet address
 - Response exception handling
-- Websockets for Python 3.5+
+- Liquidity endpoints
 
 
-Upgrading
----------
+Notes
+-----
 
-If you've been using an older version of python-idex < 1.0.0 you will need to use an API Key for the REST client
-and websocket client. See examples below.
-
+Using an API key increases `rate limits <https://api-docs-v3.idex.io/#rate-limits>`_.
 
 Quick Start
 -----------
 
-Register an account with `IDEX <https://idex.market/>`_.
+Register an account with `IDEX <https://exchange.idex.io/r/O5O9RA3B>`_.
 
 .. code:: bash
 
@@ -63,43 +60,70 @@ Synchronous Examples
 
 .. code:: python
 
-    api_key = 'api:jVXLd5h1bEYcKgZbQru2k'
-    address = '<address_string>'
-    private_key = '<private_key_string>'
+    # Unauthenticated
 
-    from idex.client import Client
-    client = Client(api_key, address, private_key)
+    from idex import Client
+    client = Client()
 
-    # get currencies
-    currencies = client.get_currencies()
+    # server time
+    time = client.get_server_time()
+
+    # get exchange_info
+    exchange_info = client.get_exchange()
+
+    # get assets
+    assets = client.get_assets()
+
+    # get markets
+    markets = client.get_markets()
 
     # get market depth
-    depth = client.get_order_book('ETH_SENT')
+    depth = client.get_order_book(market='ETH-USDC')
+
+    # get liquidity pools
+    pools = client.get_liquidity_pools()
+
+    # Authenticated
+
+    api_key = '<api_key>'
+    address = '<address_string>'
+    private_key = '<wallet_private_key_string>'
+    client = Client(api_key, address, private_key)
 
     # get your balances
-    balances = client.get_my_balances()
+    balances = client.get_balances()
 
     # get your open orders
-    orders = client.get_my_open_orders('ETH_SENT')
+    orders = client.get_open_orders()
+
+    # create a market order
+    order = client.create_market_order(
+        market='ETH-USDC',
+        order_side=OrderSide.BUY,
+        quantity=1000
+    )
 
     # create a limit order
-    order = client.create_order('SENT', 'ETH', '0.001', '10000')
+    order = client.create_limit_order(
+        market='ETH-USDC',
+        order_side=OrderSide.BUY,
+        quantity=1000,
+        price=2100,
+    )
 
 
-Async Examples for Python 3.5+
-------------------------------
+Async Example
+-------------
 
 .. code:: python
 
-    from idex.asyncio import AsyncClient, IdexSocketManager, SubscribeCategory
+    from idex import AsyncClient
 
-    loop = None
 
     async def main():
-        global loop
 
         # Initialise the client
-        client = await AsyncClient(api_key, address, private_key)
+        client = await AsyncClient.create()
 
         # get currencies
         currencies = await client.get_currencies()
@@ -116,38 +140,79 @@ Async Examples for Python 3.5+
         # create a limit order
         order = await client.create_order('SENT', 'ETH', '0.001', '10000')
 
-        # Coroutine to receive messages
-        async def handle_evt(msg):
-            print(f"event:{msg['event']} payload:{msg['payload']}")
-            # do something with this event
+        # Authenticated
 
-        # Initialise the socket manager with the callback funciton
-        ism = await IdexSocketManager.create(loop, handle_evt, api_key)
+        api_key = '<api_key>'
+        address = '<address_string>'
+        private_key = '<wallet_private_key_string>'
+        client = await AsyncClient.create(api_key, address, private_key)
 
-        # Subscribe to updates for the ETH_SENT, ETH_AURA and ETH_IDXM market for cancels, orders and trades
-        await ism.subscribe(
-            SubscribeCategory.markets,
-            ['ETH_SENT', 'ETH_AURA', 'ETH_IDXM'],
-            ['market_cancels', 'market_orders', 'market_trades']
+        # get your balances
+        balances = await client.get_balances()
+
+        # get your open orders
+        orders = await client.get_open_orders()
+
+        # create a market order
+        order = await client.create_market_order(
+            market='ETH-USDC',
+            order_side=OrderSide.BUY,
+            quantity=1000
         )
 
-        # keep the script running so we can retrieve websocket events
-        while True:
-            await asyncio.sleep(20, loop=loop)
-
+        # create a limit order
+        order = await client.create_limit_order(
+            market='ETH-USDC',
+            order_side=OrderSide.BUY,
+            quantity=1000,
+            price=2100,
+        )
 
     if __name__ == "__main__":
-        # get a loop and switch from synchronous to async
         loop = asyncio.get_event_loop()
         loop.run_until_complete(main())
 
+Wallet
+------
 
-For more `check out the documentation <https://github.com/AuroraDAO/idex-api-docs>`_.
+The examples above use the wallet private key when creating the Client to specify
+which wallet to interact with.
 
-TODO
-----
+Most functions will have a `wallet_address` parameter to target a different wallet.
 
-- Deposit endpoints
+If a new wallet is needed for subsequent calls `init_wallet` can be used to change the
+internal wallet
+
+... code:python
+
+    private_key = '<old_private_key>'
+    client = Client(api_key, address, private_key)
+    client.init_wallet(private_key='<new_wallet_private_key>')
+
+    # this will fetch balance of the new wallet
+    client.get_balance()
+
+Sandbox
+-------
+
+IDEX v3 supports a sandbox to test functionality.
+
+Enable it by passing `sandbox=True` when creating the client
+
+... code:python
+
+    client = Client(sandbox=True)
+
+    # or async
+
+    client = await AsyncClient.create(sandbox=True)
+
+Test Orders
+-----------
+
+All order functions allow for test orders to be sent, just set `test=True` when calling a test function
+
+
 
 Donate
 ------
@@ -155,6 +220,7 @@ Donate
 If this library helped you out feel free to donate.
 
 - ETH: 0xD7a7fDdCfA687073d7cC93E9E51829a727f9fE70
+- IDEX: 0xD7a7fDdCfA687073d7cC93E9E51829a727f9fE70 (Polygon)
 - NEO: AVJB4ZgN7VgSUtArCt94y7ZYT6d5NDfpBo
 - LTC: LPC5vw9ajR1YndE1hYVeo3kJ9LdHjcRCUZ
 - BTC: 1Dknp6L6oRZrHDECRedihPzx2sSfmvEBys
@@ -167,14 +233,5 @@ If you use `Binance <https://www.binance.com/?ref=10099792>`_ check out my `pyth
 If you use `Binance Chain <https://testnet.binance.org/>`_ check out my `python-binance-chain <https://github.com/sammchardy/python-binance-chain>`_ library.
 
 If you use `Kucoin <https://www.kucoin.com/?rcode=E42cWB>`_ check out my `python-kucoin <https://github.com/sammchardy/python-kucoin>`_ library.
-
-If you use `Quoinex <https://quoinex.com/>`_
-or `Qryptos <https://qryptos.com/>`_ check out my `python-quoine <https://github.com/sammchardy/python-quoine>`_ library.
-
-If you use `Allcoin <https://www.allcoin.com/Account/RegisterByPhoneNumber/?InviteCode=MTQ2OTk4MDgwMDEzNDczMQ==>`_ check out my `python-allucoin <https://github.com/sammchardy/python-allcoin>`_ library.
-
-If you use `Exx <https://www.exx.com/r/e8d10713544a2da74f91178feae775f9>`_ check out my `python-exx <https://github.com/sammchardy/python-exx>`_ library.
-
-If you use `BigONE <https://big.one>`_ check out my `python-bigone <https://github.com/sammchardy/python-bigone>`_ library.
 
 .. image:: https://analytics-pixel.appspot.com/UA-111417213-1/github/python-idex?pixel
