@@ -119,11 +119,11 @@ class BaseClient:
             hashlib.sha256,
         ).hexdigest()
 
-    def init_wallet(self, private_key: str = None):
+    def init_wallet(self, private_key: Optional[str] = None):
         if private_key:
             self._wallet_private_key = private_key
         if self._wallet_private_key:
-            self._wallet = Account.from_key(private_key)
+            self._wallet = Account.from_key(self._wallet_private_key)
 
     def _wallet_sign(self, path: str, method: str, data: Dict) -> Dict:
         signature_parameters = path_signature_parameters(
