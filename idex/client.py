@@ -102,6 +102,11 @@ class BaseClient:
         return get_nonce()
 
     @property
+    def wallet(self) -> LocalAccount:
+        assert self._wallet
+        return self._wallet
+
+    @property
     def wallet_address(self) -> str:
         return self._wallet.address if self._wallet else ""
 
