@@ -82,7 +82,7 @@ class BaseClient:
         self._wallet_private_key: Optional[str] = private_key
         self._wallet: Optional[LocalAccount] = None
         self._wallet_address: Optional[str] = None
-        self._asset_addresses = {}
+        self._asset_addresses: Dict[str, Dict] = {}
 
         self.session = self._init_session()
         self.init_wallet(private_key)
@@ -404,7 +404,7 @@ class Client(BaseClient):
         """
 
         if asset not in self._asset_addresses:
-            self._asset_addresses = self.get_assets()
+            self._asset_addresses = {asset["symbol"]: asset for asset in self.get_assets()}
 
         res = None
         if asset[:2] == "0x":
@@ -1593,7 +1593,7 @@ class AsyncClient(BaseClient):
 
     async def get_asset(self, asset: str):
         if asset not in self._asset_addresses:
-            self._asset_addresses = await self.get_assets()
+            self._asset_addresses = {asset["symbol"]: asset for asset in await self.get_assets()}
 
         res = None
         if asset[:2] == "0x":
