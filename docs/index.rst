@@ -17,6 +17,7 @@ Contents
    user
    withdraw
    liquidity
+   polygon
    async
    exceptions
    changelog
