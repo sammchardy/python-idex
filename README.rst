@@ -277,7 +277,7 @@ Stake your IDEX
 Earn staking rewards on your idle IDEX tokens from IDEX trade fees while also contributing to the decentralization of
 IDEX and robustness of the platform.
 
-Delegate them to `everday-chicken` node in the `IDEX v3 delegate portal <https://exchange.idex.io/rewards/staking/delegate>`_
+Delegate them to `everyday-chicken` node in the `IDEX v3 delegate portal <https://exchange.idex.io/rewards/staking/delegate>`_
 with one click.
 
 Donate
