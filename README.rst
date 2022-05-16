@@ -198,7 +198,7 @@ Most functions will have a `wallet_address` parameter to target a different wall
 If a new wallet is needed for subsequent calls `init_wallet` can be used to change the
 internal wallet
 
-... code:python
+.. code:: python
 
     private_key = '<old_private_key>'
     client = Client(api_key, address, private_key)
@@ -216,7 +216,7 @@ with the Polygon blockchain.
 Gas fee and price are attempted to be generated, but may fail. These values can be
 overridden by passing a `TransactionOptions` object to the calls.
 
-... code:python
+.. code:: python
 
     client = Client(api_key, address, private_key)
 
@@ -235,7 +235,7 @@ IDEX v3 supports the Mumbai testnet as a sandbox to test functionality.
 
 Enable it by passing `sandbox=True` when creating the client
 
-... code:python
+.. code:: python
 
     client = Client(sandbox=True)
 
@@ -249,7 +249,7 @@ Read more about the Sandbox mode in the `IDEX Sandbox docs <https://api-docs-v3.
 
 For other tokens on the sandbox DIL, PIP, IDEX, USD they can be added using a contract function
 
-... code:python
+.. code:: python
 
     client = Client(sandbox=True)
 
