@@ -112,7 +112,7 @@ class BaseClient:
         else:
             data_str = json.dumps(data, separators=(",", ":"))
 
-        assert self._api_secret, 'Must initialise client with api_secret to use private endpoints'
+        assert self._api_secret, "Must initialise client with api_secret to use private endpoints"
         return hmac.new(
             self._api_secret.encode("utf-8"),
             data_str.encode("utf-8"),
@@ -137,7 +137,7 @@ class BaseClient:
         return params
 
     def _create_wallet_signature(self, signature_parameters: SigParamType) -> str:
-        assert self._wallet, 'Must provide private_key for endpoints that interact with a wallet'
+        assert self._wallet, "Must provide private_key for endpoints that interact with a wallet"
         fields, values = zip(*signature_parameters)
         signature_parameters_hash: bytes = Web3.solidityKeccak(fields, values)
         signable_message: SignableMessage = encode_defunct(hexstr=signature_parameters_hash.hex())
@@ -731,7 +731,7 @@ class Client(BaseClient):
     ):
         """Returns asset quantity information held by a wallet on the exchange.
 
-        This endpoint does not include balance information for funds held by a wallet outside of the exchange custody
+        This endpoint does not include balance information for funds held by a wallet outside the exchange custody
         contract.
 
         :returns: API Response
@@ -1534,10 +1534,6 @@ class AsyncClient(BaseClient):
 
         kwargs = self._get_request_kwargs(path, method, sign_type, **kwargs)
         uri = self._create_uri(path)
-
-        print(method)
-        print(kwargs)
-        print(uri)
 
         async with getattr(self.session, method)(uri, **kwargs) as response:
             self._last_response = response
