@@ -1,4 +1,6 @@
+from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
 
 
 class CandleInterval(str, Enum):
@@ -47,3 +49,17 @@ class OrderSelfTradePrevention(str, Enum):
 class SignType(Enum):
     USER = "user"
     TRADE = "trade"
+
+
+@dataclass
+class TransactionOptions:
+    gas: Optional[int] = None
+    gas_price: Optional[int] = None
+
+    def to_dict(self):
+        result = {}
+        if self.gas:
+            result['gas'] = self.gas
+        if self.gas_price:
+            result['gasPrice'] = self.gas_price
+        return result

@@ -4,16 +4,19 @@ import hashlib
 import hmac
 import json
 import time
+from pathlib import Path
 from urllib.parse import urlencode
 import uuid
-from typing import Optional, Dict, List, Union, Any
+from typing import Optional, Dict, List, Union, Any, Iterable, Callable
 
 import aiohttp
 from eth_account import Account
 from eth_account.messages import SignableMessage, encode_defunct
 import requests
 from eth_account.signers.local import LocalAccount
-from web3 import Web3
+from eth_typing import HexStr
+from web3 import Web3, middleware, types as web3_types
+from web3.gas_strategies.rpc import rpc_gas_price_strategy
 
 from .enums import (
     CandleInterval,
@@ -23,6 +26,7 @@ from .enums import (
     OrderSide,
     OrderTimeInForce,
     OrderSelfTradePrevention,
+    TransactionOptions,
 )
 from .exceptions import (
     IdexAPIException,
@@ -41,6 +45,9 @@ class BaseClient:
 
     API_URL = "https://api-matic.idex.io"
     SANDBOX_URL = "https://api-sandbox-matic.idex.io"
+
+    RPC_URL = "https://polygon-rpc.com"
+    SANDBOX_RPC_URL = "https://rpc-mumbai.matic.today"
 
     API_VERSION = "v1"
 
@@ -71,6 +78,7 @@ class BaseClient:
         """
 
         self.api_url = self.SANDBOX_URL if sandbox else self.API_URL
+        self.rpc_url = self.SANDBOX_RPC_URL if sandbox else self.RPC_URL
         self.contracts = self.SANDBOX_CONTRACTS if sandbox else self.CONTRACTS
         self.sandbox: bool = sandbox
         self._start_nonce = None
@@ -83,6 +91,8 @@ class BaseClient:
         self._wallet: Optional[LocalAccount] = None
         self._wallet_address: Optional[str] = None
         self._asset_addresses: Dict[str, Dict] = {}
+        self._faucet_abi: Optional[Dict] = None
+        self._exchange_abi: Optional[Dict] = None
 
         self.session = self._init_session()
         self.init_wallet(private_key)
@@ -200,6 +210,128 @@ class BaseClient:
 
         """
         return self._last_response
+
+    def faucet_abi(self) -> Dict:
+        if not self._faucet_abi:
+            with open(Path(__file__).parent / "contracts" / "FaucetToken.abi.json") as fh:
+                self._faucet_abi = json.load(fh)
+        assert self._faucet_abi
+        return self._faucet_abi
+
+    def exchange_abi(self) -> Dict:
+        if not self._exchange_abi:
+            with open(Path(__file__).parent / "contracts" / "Exchange.abi.json") as fh:
+                self._exchange_abi = json.load(fh)
+        assert self._exchange_abi
+        return self._exchange_abi
+
+    def init_web3_client(self, gas_price_strategy: Callable = rpc_gas_price_strategy):
+        w3 = Web3(Web3.HTTPProvider(self.rpc_url))
+        w3.middleware_onion.inject(middleware.geth_poa_middleware, layer=0)
+        w3.middleware_onion.add(middleware.time_based_cache_middleware)
+        w3.middleware_onion.add(middleware.latest_block_based_cache_middleware)
+        w3.middleware_onion.add(middleware.simple_cache_middleware)
+        w3.eth.set_gas_price_strategy(gas_price_strategy)
+        return w3
+
+    def execute_idex_contract_function(
+        self,
+        function: str,
+        function_params: Optional[Iterable] = None,
+        tx_params: Optional[Dict] = None,
+        tx_options: Optional[TransactionOptions] = None,
+    ) -> HexStr:
+        contract_params = {
+            "address": Web3.toChecksumAddress(self.contracts["exchange"]),
+            "abi": self.exchange_abi(),
+        }
+        return self.execute_contract_function(
+            function, contract_params, function_params, tx_params, tx_options
+        )
+
+    def execute_exchange_contract_function(
+        self,
+        function: str,
+        contract_address: str,
+        function_params: Optional[Iterable] = None,
+        tx_params: Optional[Dict] = None,
+        tx_options: Optional[TransactionOptions] = None,
+    ) -> HexStr:
+        contract_params = {
+            "address": Web3.toChecksumAddress(contract_address),
+            "abi": self.faucet_abi(),
+        }
+        return self.execute_contract_function(
+            function, contract_params, function_params, tx_params, tx_options
+        )
+
+    def execute_contract_function(
+        self,
+        function: str,
+        contract_params: Optional[Dict] = None,
+        function_params: Optional[Iterable] = None,
+        tx_params: Optional[Dict] = None,
+        tx_options: Optional[TransactionOptions] = None,
+    ) -> HexStr:
+        tx_options_dict: Dict = tx_options.to_dict() if tx_options else {}
+        w3 = self.init_web3_client()
+        contract = w3.eth.contract(**(contract_params or {}))
+        txn = getattr(contract.functions, function)(*(function_params or []))
+        tx_build_options: Dict[str, Any] = {
+            "nonce": w3.eth.get_transaction_count(self.wallet_address),
+            **(tx_params or {}),
+            **tx_options_dict,
+        }
+        signed_txn = self.wallet.sign_transaction(txn.buildTransaction(tx_build_options))
+        return HexStr(w3.eth.send_raw_transaction(signed_txn.rawTransaction).hex())
+
+    def get_transaction(self, transaction_id: web3_types._Hash32):  # noqa
+        w3 = self.init_web3_client()
+        return w3.eth.get_transaction(transaction_id)
+
+    def get_transaction_receipt(self, transaction_id: web3_types._Hash32):  # noqa
+        w3 = self.init_web3_client()
+        return w3.eth.get_transaction_receipt(transaction_id)
+
+    def wait_for_transaction_receipt(
+        self,
+        transaction_id: web3_types._Hash32,  # noqa
+        timeout: int = 120,
+        poll_latency: float = 0.1,  # noqa
+    ):
+        w3 = self.init_web3_client()
+        return w3.eth.wait_for_transaction_receipt(
+            transaction_id, timeout=timeout, poll_latency=poll_latency
+        )
+
+    def _deposit_funds(
+        self, asset_details: Dict, quantity: float, tx_options: Optional[TransactionOptions] = None
+    ) -> HexStr:
+
+        token_quantity = int(convert_to_token_quantity(asset_details, quantity))
+
+        if asset_details["symbol"] == "MATIC":
+            res = self.execute_idex_contract_function(
+                function="depositEther",
+                function_params=[],
+                tx_params={"value": token_quantity},
+                tx_options=tx_options,
+            )
+        else:
+            approve_res = self.execute_exchange_contract_function(
+                function="approve",
+                contract_address=asset_details["contractAddress"],
+                function_params=(self.contracts["exchange"], token_quantity),
+                tx_options=tx_options,
+            )
+            self.wait_for_transaction_receipt(approve_res)
+            res = self.execute_idex_contract_function(
+                function="depositTokenByAddress",
+                function_params=(asset_details["contractAddress"], token_quantity),
+                tx_options=tx_options,
+            )
+
+        return res
 
 
 class Client(BaseClient):
@@ -340,7 +472,7 @@ class Client(BaseClient):
         """
         return self._get("exchange")
 
-    def get_assets(self):
+    def get_assets(self) -> List[Dict]:
         """Returns information about assets supported by the exchange
 
         https://api-docs-v3.idex.io/#get-assets
@@ -372,7 +504,7 @@ class Client(BaseClient):
         """
         return self._get("assets")
 
-    def get_asset(self, asset: str):
+    def get_asset(self, asset: str) -> Dict:
         """Get the details for a particular asset using its token name or address
 
         :param asset: Name of the currency e.g. EOS or '0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098'
@@ -1084,8 +1216,13 @@ class Client(BaseClient):
 
     # deposit endpoints
 
-    def deposit_funds(self):
-        raise NotImplementedError()
+    def deposit_funds(
+        self, asset: str, quantity: float, tx_options: Optional[TransactionOptions] = None
+    ) -> HexStr:
+        asset_details = self.get_asset(asset)
+        return self._deposit_funds(
+            asset_details=asset_details, quantity=quantity, tx_options=tx_options
+        )
 
     def get_deposits(
         self,
@@ -1209,6 +1346,34 @@ class Client(BaseClient):
         if asset_contract_address:
             data["assetContractAddress"] = asset_contract_address
         return self._post("withdrawals", sign_type=SignType.TRADE, data=data)
+
+    def contract_exit_wallet(self, tx_options: Optional[TransactionOptions] = None):
+        """Allow funds to be withdrawn directly from the contract, even if IDEX is offline or otherwise unresponsive
+
+        https://api-docs-v3.idex.io/#exit-wallet
+
+        All future deposits, trades, and liquidity additions and removals are blocked. Any open orders associated with
+        the wallet are cleared from the order books, and any liquidity provider (LP) tokens held as exchange balances
+        are liquidated.
+
+        Wait at least 1 hour for any in-flight settlement transactions to mine.
+
+        """
+        return self.execute_idex_contract_function(function="exitWallet", tx_options=tx_options)
+
+    def contract_withdraw_exit(self, asset: str, tx_options: Optional[TransactionOptions] = None):
+        """Transfers the wallet’s full exchange balance of the specified asset back to the wallet
+
+        https://api-docs-v3.idex.io/#exit-wallet
+
+        """
+        asset_details = self.get_asset(asset)
+
+        return self.execute_idex_contract_function(
+            function="withdrawExit",
+            function_params=[asset_details["contractAddress"]],
+            tx_options=tx_options,
+        )
 
     def get_withdrawals(
         self,
@@ -1510,6 +1675,16 @@ class Client(BaseClient):
         }
         return self._get("wsToken", sign_type=SignType.USER, data=data)
 
+    # Contract functions
+
+    def contract_testnet_faucet(self, asset: str):
+        asset_details = self.get_asset(asset)
+        return self.execute_exchange_contract_function(
+            function="faucet",
+            contract_address=asset_details["contractAddress"],
+            function_params=[self.wallet_address],
+        )
+
 
 class AsyncClient(BaseClient):
     @classmethod
@@ -1586,12 +1761,12 @@ class AsyncClient(BaseClient):
 
     get_exchange.__doc__ = Client.get_exchange.__doc__
 
-    async def get_assets(self):
+    async def get_assets(self) -> List[Dict]:
         return await self._get("assets")
 
     get_assets.__doc__ = Client.get_assets.__doc__
 
-    async def get_asset(self, asset: str):
+    async def get_asset(self, asset: str) -> Dict[str, Any]:
         if asset not in self._asset_addresses:
             self._asset_addresses = {asset["symbol"]: asset for asset in await self.get_assets()}
 
@@ -1967,8 +2142,13 @@ class AsyncClient(BaseClient):
 
     # deposit endpoints
 
-    async def deposit_funds(self):
-        raise NotImplementedError()
+    async def deposit_funds(
+        self, asset: str, quantity: float, tx_options: Optional[TransactionOptions] = None
+    ) -> HexStr:
+        asset_details = await self.get_asset(asset)
+        return self._deposit_funds(
+            asset_details=asset_details, quantity=quantity, tx_options=tx_options
+        )
 
     deposit_funds.__doc__ = Client.deposit_funds.__doc__
 
@@ -2124,14 +2304,16 @@ class AsyncClient(BaseClient):
         to_wallet: str,
         wallet_address: Optional[str] = None,
     ):
+        token_a_details = await self.get_asset(token_a)
+        token_b_details = await self.get_asset(token_b)
         data: Dict[str, Any] = {
             "wallet": wallet_address or self.wallet_address,
             "tokenA": await self.asset_to_address(token_a),
             "tokenB": await self.asset_to_address(token_b),
-            "amountADesired": convert_to_token_quantity(self.get_asset(token_a), amount_a),
-            "amountBDesired": convert_to_token_quantity(self.get_asset(token_b), amount_b),
-            "amountAMin": convert_to_token_quantity(self.get_asset(token_a), amount_a_min),
-            "amountBMin": convert_to_token_quantity(self.get_asset(token_b), amount_b_min),
+            "amountADesired": convert_to_token_quantity(token_a_details, amount_a),
+            "amountBDesired": convert_to_token_quantity(token_b_details, amount_b),
+            "amountAMin": convert_to_token_quantity(token_a_details, amount_a_min),
+            "amountBMin": convert_to_token_quantity(token_b_details, amount_b_min),
             "to": to_wallet,
         }
         return await self._post("addLiquidity", sign_type=SignType.TRADE, data=data)

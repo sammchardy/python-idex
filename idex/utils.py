@@ -1,6 +1,6 @@
 import uuid
 from decimal import Decimal
-from typing import Union
+from typing import Union, Dict
 
 
 def get_nonce() -> uuid.UUID:
@@ -11,7 +11,7 @@ def format_quantity(quantity: Union[float, Decimal]):
     return f"{quantity:0.08f}"
 
 
-def num_to_decimal(number):
+def num_to_decimal(number) -> Decimal:
     if type(number) == float:
         number = Decimal(repr(number))
     elif type(number) == int:
@@ -38,10 +38,7 @@ def parse_from_token_quantity(currency_details, quantity):
     return res
 
 
-def convert_to_token_quantity(currency_details, quantity):
-    if currency_details is None:
-        return None
-
+def convert_to_token_quantity(currency_details: Dict, quantity: float):
     f_q = num_to_decimal(quantity)
 
     if "assetDecimals" not in currency_details:
