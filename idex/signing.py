@@ -37,7 +37,7 @@ def path_signature_parameters(
     path: str, method: str, wallet_address: str, sandbox: bool, data: Dict
 ) -> SigParamType:
     param_func_map = {
-        "wallet-post": wallet_sign_associate_wallet,
+        "wallets-post": wallet_sign_associate_wallet,
         "orders-post": wallet_sign_create_order,
         "orders/test-post": wallet_sign_create_order,
         "orders-delete": wallet_sign_cancel_order,

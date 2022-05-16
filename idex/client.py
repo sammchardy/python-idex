@@ -709,7 +709,7 @@ class Client(BaseClient):
 
         """
 
-        return self._get("wallets", sign_type=SignType.TRADE, data={"wallet": wallet_address})
+        return self._post("wallets", sign_type=SignType.TRADE, data={"wallet": wallet_address})
 
     def get_wallets(self):
         """Returns information about the API account.
@@ -1710,7 +1710,9 @@ class AsyncClient(BaseClient):
     get_account.__doc__ = Client.get_account.__doc__
 
     async def associate_wallet(self, wallet_address: str):
-        return await self._get("wallets", sign_type=SignType.TRADE, data={"wallet": wallet_address})
+        return await self._post(
+            "wallets", sign_type=SignType.TRADE, data={"wallet": wallet_address}
+        )
 
     associate_wallet.__doc__ = Client.associate_wallet.__doc__
 
