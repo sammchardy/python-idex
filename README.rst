@@ -35,10 +35,12 @@ Documentation
 Features
 --------
 
-- Implementation of all REST endpoints except for deposit.
-- Response exception handling
+- Implementation of all REST endpoints
 - Liquidity endpoints
-
+- Deposit from main wallet to exchange wallet
+- Sandbox and faucet support
+- Async client support
+- Response exception handling
 
 Notes
 -----
@@ -53,7 +55,6 @@ Register an account with `IDEX v3 <https://exchange.idex.io/r/O5O9RA3B>`_.
 .. code:: bash
 
     pip install python-idex
-
 
 Synchronous Examples
 --------------------
@@ -88,7 +89,14 @@ Synchronous Examples
     api_key = '<api_key>'
     address = '<address_string>'
     private_key = '<wallet_private_key_string>'
+    wallet_address = '0x<wallet_address>'
     client = Client(api_key, address, private_key)
+
+    # associate wallet to account
+    client.associate_wallet(wallet_address=wallet_address)
+
+    # deposit funds
+    client.deposit_funds(asset='MATIC', quantity=1.234)
 
     # get your balances
     balances = client.get_balances()
@@ -145,7 +153,14 @@ Async Example
         api_key = '<api_key>'
         address = '<address_string>'
         private_key = '<wallet_private_key_string>'
+        wallet_address = '0x<wallet_address>'
         client = await AsyncClient.create(api_key, address, private_key)
+
+        # associate wallet to account
+        await client.associate_wallet(wallet_address=wallet_address)
+
+        # deposit funds
+        await client.deposit_funds(asset='MATIC', quantity=1.234)
 
         # get your balances
         balances = await client.get_balances()
@@ -192,10 +207,31 @@ internal wallet
     # this will fetch balance of the new wallet
     client.get_balance()
 
-Sandbox
--------
+Contract function
+-----------------
 
-IDEX v3 supports a sandbox to test functionality.
+Functions such as `deposit_funds`, `contract_exit_wallet` and `contract_withdraw_exit` interact
+with the Polygon blockchain.
+
+Gas fee and price are attempted to be generated, but may fail. These values can be
+overridden by passing a `TransactionOptions` object to the calls.
+
+... code:python
+
+    client = Client(api_key, address, private_key)
+
+    tx_options = TransactionOptions(gas=150000, gas_price=20000000000)
+
+    client.deposit_funds(
+        asset="USD",
+        quantity=1123,
+        tx_options=tx_options,
+    )
+
+Sandbox/Testnet
+---------------
+
+IDEX v3 supports the Mumbai testnet as a sandbox to test functionality.
 
 Enable it by passing `sandbox=True` when creating the client
 
@@ -207,12 +243,42 @@ Enable it by passing `sandbox=True` when creating the client
 
     client = await AsyncClient.create(sandbox=True)
 
+Read more about the Sandbox mode in the `IDEX Sandbox docs <https://api-docs-v3.idex.io/#sandbox>`_.
+
+`Search reddit <https://www.reddit.com/r/0xPolygon/search/?q=faucet>`_ for a functioning faucet to receive MATIC.
+
+For other tokens on the sandbox DIL, PIP, IDEX, USD they can be added using a contract function
+
+... code:python
+
+    client = Client(sandbox=True)
+
+    tx_id = client.contract_testnet_faucet(asset='DIL')
+    client.wait_for_transaction_receipt(tx_id)
+
+    tx_id = client.contract_testnet_faucet(asset='PIP')
+    client.wait_for_transaction_receipt(tx_id)
+
+    tx_id = client.contract_testnet_faucet(asset='IDEX')
+    client.wait_for_transaction_receipt(tx_id)
+
+    tx_id = client.contract_testnet_faucet(asset='USD')
+    client.wait_for_transaction_receipt(tx_id)
+
+
 Test Orders
 -----------
 
 All order functions allow for test orders to be sent, just set `test=True` when calling a test function
 
+Stake your IDEX
+---------------
 
+Earn staking rewards on your idle IDEX tokens from IDEX trade fees while also contributing to the decentralization of
+IDEX and robustness of the platform.
+
+Delegate them to `everday-chicken` node in the `IDEX v3 delegate portal <https://exchange.idex.io/rewards/staking/delegate>`_
+with one click.
 
 Donate
 ------
